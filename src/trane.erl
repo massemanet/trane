@@ -87,7 +87,7 @@ tz(nil,[_|Str])                         -> {nil,Str};
 tz({tag,""},"!--"++Str)                 -> {{comm,""},Str};
 tz({tag,""},"!"++Str)                   -> {{excl,""},ws(Str)};
 tz({tag,""},"?"++Str)                   -> {{que,""},ws(Str)};
-tz({tag,""},"/"++Str)                   -> {{end_tag,""},Str};
+tz({tag,""},"/"++Str)                   -> {{end_tag,""},ws(Str)};
 tz({tag,Tag},Str) when ?endv(Str)       -> {{attr,"",{Tag,[]}},ws(Str)};
 tz({tag,Tag},[X|Str])                   -> {{tag,Tag++[X]},Str};
 
@@ -168,7 +168,7 @@ unit() ->
       [{exclamation,"doctype bla"},
        {tag,"p",[{"a","b"},{"c","d"}]},
        {end_tag,"p"}]},
-     {"<head><B>< p><p ></z></b></x>",
+     {"<head><B>< p><p ></z></ b></x>",
       [{tag,"head",[]},
        {tag,"b",[]},
        {tag,"p",[]},
