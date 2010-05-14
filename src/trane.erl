@@ -15,32 +15,28 @@
          , unit/0
          , wget_parse/1,wget_print/1]).
 
+-define(ok(X),$a=<X,X=<$z;$A=<X,X=<$Z;$0=<X,X=<$9;X==$_;X==$-;X==$:).
 -define(ws(X),X==$\s ;X==$\r;X==$\n;X==$\t).
 -define(endv(S),?ws(hd(S));hd(S)==$>;hd(S)==$/,hd(tl(S))==$>;hd(S)==$=).
 -define(dq(Z),Z==$").
 -define(sq(Z),Z==$').
 
 sax(Str,Fun,Acc) ->
-  try parse({Fun,Acc,[]},tz(nil,Str))
-  catch C:R -> err(C,R,Str)
-  end.
+  parse(Str,Fun,Acc).
 
-err(C,R,Str) ->
-  case erlang:get_stacktrace() of
-    [{M,tz,[State,EStr]}|_] -> {{C,R},M,tz,State,err_pos(Str,EStr)};
-    ST -> io:fwrite("~p:~p~n~p~n~p~n",[C,R,ST,Str])
-  end.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% parser
+parse(Str,Fun,Acc) ->
+  parse({Fun,Acc,[]},tokenize(Str)).
 
-err_pos(Str1,Str2) -> err_pos(Str1,Str2,20).
-err_pos(Str1,Str2,Sz) ->
-  Str = lists:sublist(Str1,length(Str1)-length(Str2)),
-  {lists:reverse(lists:sublist(lists:reverse(Str),Sz)),lists:sublist(Str2,Sz)}.
-
-parse(State,{TZ,Str})  -> parse(State,tz(TZ,Str));
-parse({Fun,Acc,Stack}=State,{TZ,Str,Token}) -> 
+parse(State,[Token1,Token2,T]) ->
+  parse(maybe_emit(Token2,maybe_emit(Token1,State)),T);
+parse(State,[Token,T]) ->
+  parse(maybe_emit(Token,State),T);
+parse({Fun,Acc,Stack}=State,{Token,T}) -> 
   case Token of
     eof -> eof(unroll(Stack,{Fun,Acc,[]}));
-    _   -> parse(maybe_emit(Token,State),tz(TZ,Str))
+    _   -> parse(maybe_emit(Token,State),tokenize(T))
   end.
 
 eof({_Fun,Acc,_Stack}) -> Acc.
@@ -81,6 +77,22 @@ maybe_unroll(Tag,{Fun,Acc,Stack}) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% tokenizer
+tokenize(Str) when is_integer(hd(Str)) ->
+  tokenize(tz(nil,Str));
+
+tokenize({TZ,Str}) ->
+  tokenize(tz(TZ,Str));
+tokenize({text,Str,Token}) ->
+  case ff(text,Str) of
+    {{tag,""},EStr,{text,Txt}} -> 
+      try [Token,{text,Txt},tokenize({{tag,""},EStr})]
+      catch _:_ -> tokenize({text,Txt++"&lt;"++EStr,Token})
+      end;
+    {{text,Str},"",eof} -> [Token,{eof,{text,Str}}]
+  end;
+tokenize({TZ,Str,Token}) ->
+  {Token,{TZ,Str}}.
+
 tz(nil,"<"++Str)                        -> {{tag,""},ws(Str)};
 tz(nil,[_|Str])                         -> {nil,Str};
 
@@ -89,7 +101,7 @@ tz({tag,""},"!"++Str)                   -> {{excl,""},ws(Str)};
 tz({tag,""},"?"++Str)                   -> {{que,""},ws(Str)};
 tz({tag,""},"/"++Str)                   -> {{end_tag,""},ws(Str)};
 tz({tag,Tag},Str) when ?endv(Str)       -> {{attr,"",{Tag,[]}},ws(Str)};
-tz({tag,Tag},[X|Str])                   -> {{tag,Tag++[X]},Str};
+tz({tag,Tag},[X|Str])when ?ok(X)        -> {{tag,Tag++[X]},Str};
 
 tz({excl,DT},">"++Str)                  -> {text,Str,{exclamation,dc(DT)}};
 tz({excl,DT},[X|Str])                   -> {{excl,DT++[X]},Str};
@@ -111,10 +123,10 @@ tz({end_tag,Tag},[X|Str])               -> {{end_tag,Tag++[X]},Str};
 
 tz({attr,"",{Tag,As}},S)when ?endv(S)   -> {{etag,dc(Tag),As},S};
 tz({attr,A,{T,As}},S)when ?endv(S)      -> {{eatt,{dc(A),T,As}},ws(S)};
-tz({attr,A,TAs},[X|Str])                -> {{attr,A++[X],TAs},Str};
+tz({attr,A,TAs},[X|Str])when ?ok(X)     -> {{attr,A++[X],TAs},Str};
 
 tz({eatt,ATAs},"="++Str)                -> {{val,ATAs},ws(Str)};
-tz({eatt,{A,Tag,As}},S)                 -> {{attr,"",{Tag,As++[{A,""}]}},ws(S)};
+tz({eatt,{A,T,As}},S)                   -> {{attr,"",{T,As++[{A,""}]}},ws(S)};
 
 tz({val,ATAs},[X|Str])when ?sq(X)       -> {{sqval,"",ATAs},Str};%singlequoted
 tz({val,ATAs},[X|Str])when ?dq(X)       -> {{dqval,"",ATAs},Str};%doublequoted
@@ -141,7 +153,7 @@ tz(X,"")                                -> {X,"",eof}.
 ff(What,Str) ->
   case ff(Str,ff(What),[1,2]) of
     [Scr,Rest] -> {{tag,""},ws(Rest),{text,Scr}};
-    [] -> {{text,Str},""}
+    [] -> {{text,Str},"",eof}
   end.
 
 ff(script)-> "(.*)<(\\s*/\\s*script\\s*>.*)\$";
@@ -180,6 +192,10 @@ unit() ->
      {"<tag catt xatt=\"\" batt>",
       [{tag,"tag",[{"catt",""},{"xatt",""},{"batt",""}]},
        {end_tag,"tag"}]},
+     {"<a>...<...</a>",
+      [{tag,"a",[]},
+       {text,"...&lt;..."},
+       {end_tag,"a"}]},
      {"<P a=b c=d>hej<!-- tobbe --><b>svejsan</b>foo</p>grump<x x=y />",
       [{tag,"p",[{"a","b"},{"c","d"}]},
        {text,"hej"},
