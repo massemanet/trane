@@ -1,0 +1,8 @@
+trane is a SAX-style parser for real-world, i.e. broken, HTML. It is
+written in Erlang.
+
+It aims to behave like browser HTML parsers, i.e. to turn anything
+into an HTML parse tree. If the HTML is broken, this is of course
+totally unpredictable, and all browsers does it differently.
+
+The name is an homage to John Coltrane, another quality sax wielder.
