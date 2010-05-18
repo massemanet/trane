@@ -12,7 +12,7 @@
 -module('trane').
 -author('mats cronqvist').
 -export([sax/3
-         , unit/0
+         , unit/0,unit/1
          , wget_parse/1,wget_print/1]).
 
 -define(ok(X),$a=<X,X=<$z;$A=<X,X=<$Z;$0=<X,X=<$9;X==$_;X==$-;X==$:).
@@ -29,15 +29,13 @@ sax(Str,Fun,Acc) ->
 parse(Str,Fun,Acc) ->
   parse({Fun,Acc,[]},tokenize(Str)).
 
-parse(State,[Token1,Token2,T]) ->
-  parse(maybe_emit(Token2,maybe_emit(Token1,State)),T);
-parse(State,[Token,T]) ->
-  parse(maybe_emit(Token,State),T);
-parse({Fun,Acc,Stack}=State,{Token,T}) -> 
+parse({Fun,Acc,Stack}=State,[{Token,T}]) -> 
   case Token of
     eof -> eof(unroll(Stack,{Fun,Acc,[]}));
     _   -> parse(maybe_emit(Token,State),tokenize(T))
-  end.
+  end;
+parse(State,[Token|Ts]) ->
+  parse(maybe_emit(Token,State),Ts).
 
 eof({_Fun,Acc,_Stack}) -> Acc.
 
@@ -77,6 +75,7 @@ maybe_unroll(Tag,{Fun,Acc,Stack}) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% tokenizer
+
 tokenize(Str) when is_integer(hd(Str)) ->
   tokenize(tz(nil,Str));
 
@@ -85,13 +84,13 @@ tokenize({TZ,Str}) ->
 tokenize({text,Str,Token}) ->
   case ff(text,Str) of
     {{tag,""},EStr,{text,Txt}} -> 
-      try [Token,{text,Txt},tokenize({{tag,""},EStr})]
+      try [Token,{text,Txt}]++tokenize({{tag,""},EStr})
       catch _:_ -> tokenize({text,Txt++"&lt;"++EStr,Token})
       end;
     {{text,Str},"",eof} -> [Token,{eof,{text,Str}}]
   end;
 tokenize({TZ,Str,Token}) ->
-  {Token,{TZ,Str}}.
+  [{Token,{TZ,Str}}].
 
 tz(nil,"<"++Str)                        -> {{tag,""},ws(Str)};
 tz(nil,[_|Str])                         -> {nil,Str};
@@ -169,50 +168,6 @@ ws(Str) -> Str.
 dc(Str) -> string:to_lower(Str).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% ad-hoc unit test
-unit() ->
-  validate(
-    [{"<!DOCTYPE bla><P a=b c=d>",
-      [{exclamation,"doctype bla"},
-       {tag,"p",[{"a","b"},{"c","d"}]},
-       {end_tag,"p"}]},
-     {"<head><B>< p><p ></z></ b></x>",
-      [{tag,"head",[]},
-       {tag,"b",[]},
-       {tag,"p",[]},
-       {tag,"p",[]}, 
-       {end_tag,"p"},
-       {end_tag,"p"},
-       {end_tag,"b"},
-       {end_tag,"head"}]},
-     {"<tag catt xatt=\"\" batt>",
-      [{tag,"tag",[{"catt",""},{"xatt",""},{"batt",""}]},
-       {end_tag,"tag"}]},
-     {"<a>...<...</a>",
-      [{tag,"a",[]},
-       {text,"...&lt;..."},
-       {end_tag,"a"}]},
-     {"<P a=b c=d>hej<!-- tobbe --><b>svejsan</b>foo</p>grump<x x=y />",
-      [{tag,"p",[{"a","b"},{"c","d"}]},
-       {text,"hej"},
-       {comment," tobbe "},
-       {tag,"b",[]},
-       {text,"svejsan"},
-       {end_tag,"b"},
-       {text,"foo"},
-       {end_tag,"p"},
-       {text,"grump"},
-       {tag,"x",[{"x","y"}]},
-       {end_tag,"x"}]}
-    ]).
-
-validate([]) -> [];
-validate([{Str,Toks}|Vs]) -> 
-  [try Toks = sax(Str,fun(T,A)-> A++[T] end, []),Str
-   catch C:R -> {C,R,erlang:get_stacktrace(),Str}
-   end|validate(Vs)].
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Parsing real pages
 wget(Url) ->
   inets:start(),
@@ -224,3 +179,57 @@ wget_parse(Url) ->
 
 wget_print(Url) ->
   io:fwrite("~s~n",[wget(Url)]).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% ad-hoc unit test
+unit(N) when is_integer(N) ->
+  validate([lists:nth(N,tests())]).
+
+unit() ->
+  validate(tests()).
+
+validate([]) -> [];
+validate([{Str,Toks}|Vs]) -> 
+  [try Toks = sax(Str,fun(T,A)-> A++[T] end, []),Str
+   catch C:R -> {C,R,erlang:get_stacktrace(),Str}
+   end|validate(Vs)].
+
+
+tests() ->
+  [{"<!DOCTYPE bla><P a=b c=d>",
+    [{exclamation,"doctype bla"},
+     {tag,"p",[{"a","b"},{"c","d"}]},
+     {end_tag,"p"}]},
+   {"<head><B>< p><p ></z></ b></x>",
+    [{tag,"head",[]},
+     {tag,"b",[]},
+     {tag,"p",[]},
+     {tag,"p",[]}, 
+     {end_tag,"p"},
+     {end_tag,"p"},
+     {end_tag,"b"},
+     {end_tag,"head"}]},
+   {"<tag catt xatt=\"\" batt>",
+    [{tag,"tag",[{"catt",""},{"xatt",""},{"batt",""}]},
+     {end_tag,"tag"}]},
+   {"<a href=/a/bc/d.e>x</a>",
+    [{tag,"a",[{"href","/a/bc/d.e"}]},
+     {text,"x"},
+     {end_tag,"a"}]},
+   {"<a>...<...</a>",
+    [{tag,"a",[]},
+     {text,"...&lt;..."},
+     {end_tag,"a"}]},
+   {"<P a=b c=d>hej<!-- tobbe --><b>svejsan</b>foo</p>grump<x x=y />",
+    [{tag,"p",[{"a","b"},{"c","d"}]},
+     {text,"hej"},
+     {comment," tobbe "},
+     {tag,"b",[]},
+     {text,"svejsan"},
+     {end_tag,"b"},
+     {text,"foo"},
+     {end_tag,"p"},
+     {text,"grump"},
+     {tag,"x",[{"x","y"}]},
+     {end_tag,"x"}]}
+  ].
