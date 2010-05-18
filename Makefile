@@ -1,6 +1,6 @@
 all: 
 	(if [ ! -d ebin ]; then mkdir ebin; fi)
-	erl -make
+	${MAKE} -C src
 
 clean:
 	rm -rf ./ebin/*.beam

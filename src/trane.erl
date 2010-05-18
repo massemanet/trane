@@ -145,9 +145,6 @@ tz(script,Str)                          -> ff(script,Str);
 tz(style,Str)                           -> ff(style,Str);
 tz(text,Str)                            -> ff(text,Str);
 
-%tz({text,Text},"<"++Str)                -> {{tag,""},ws(Str),{text,Text}};
-%tz({text,Text},[X|Str])                 -> {{text,Text++[X]},Str};
-
 tz(X,"")                                -> {X,"",eof}.
 
 ff(What,Str) ->
@@ -170,7 +167,6 @@ ws([X|Str]) when ?ws(X) -> ws(Str);
 ws(Str) -> Str.
 
 dc(Str) -> string:to_lower(Str).
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% ad-hoc unit test
