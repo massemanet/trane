@@ -5,7 +5,6 @@
 %% @doc
 %% SAX parser for broken HTML
 %% missing:
-%% * handle '<' in text
 %% * handle attributes in end-tag
 %% @end
 
@@ -14,12 +13,6 @@
 -export([sax/3
          , unit/0,unit/1
          , wget_parse/1,wget_print/1]).
-
--define(ok(X),$a=<X,X=<$z;$A=<X,X=<$Z;$0=<X,X=<$9;X==$_;X==$-;X==$:).
--define(ws(X),X==$\s ;X==$\r;X==$\n;X==$\t).
--define(endv(S),?ws(hd(S));hd(S)==$>;hd(S)==$/,hd(tl(S))==$>;hd(S)==$=).
--define(dq(Z),Z==$").
--define(sq(Z),Z==$').
 
 sax(Str,Fun,Acc) ->
   parse(Str,Fun,Acc).
@@ -47,9 +40,9 @@ maybe_emit(Token,State) ->
                         catch bogus -> State
                         end;
     {comment,Cm}     -> emit({comment,Cm},State);
-    {question,DT}    -> emit({question,DT},State);
-    {exclamation,DT} -> emit({exclamation,DT},State);
-    {text,""}        -> State;
+    {'?',DT}    -> emit({'?',DT},State);
+    {'!',DT} -> emit({'!',DT},State);
+    {text,<<>>}        -> State;
     {text,Text}      -> emit({text,Text},State)
   end.
 
@@ -76,8 +69,26 @@ maybe_unroll(Tag,{Fun,Acc,Stack}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% tokenizer
 
-tokenize(Str) when is_integer(hd(Str)) ->
-  tokenize(tz(nil,Str));
+%tz(<<>>,O)->lists:reverse(O);
+%   (<<X:8/integer,R/binary>>,O)->tz(R,[X|O])
+%end.
+
+
+-define(M(X),<<X,_/binary>>). % match
+-define(m(X,B),<<X,B/binary>>). % match
+-define(d(X,B),<<X:8/integer,B/binary>>). % decompose
+-define(D1(X,B),<<X:8/integer,_/binary>> = B). % decompose
+-define(D2(Y,B),<<Y:2/binary,_/binary>> = B). % decompose
+
+-define(ok(X),$a=<X,X=<$z;$A=<X,X=<$Z;$0=<X,X=<$9;X==$_;X==$-;X==$:).
+-define(ws(X),X==$\s;X==$\r;X==$\n;X==$\t).
+-define(dq(X),X==$").
+-define(sq(X),X==$').
+
+-define(ev(X), ?ws(X); X==$>; X== <<"/>">>; X==$=).
+
+tokenize(Str) when is_integer(hd(Str))-> tokenize(list_to_binary(Str));
+tokenize(Str) when is_binary(Str) -> tokenize(tz(nil,Str));
 
 tokenize({TZ,Str}) ->
   tokenize(tz(TZ,Str));
@@ -85,66 +96,71 @@ tokenize({text,Str,Token}) ->
   case ff(text,Str) of
     {{tag,""},EStr,{text,Txt}} -> 
       try [Token,{text,Txt}]++tokenize({{tag,""},EStr})
-      catch _:_ -> tokenize({text,Txt++"&lt;"++EStr,Token})
+      catch _:_ -> tokenize({text,<<Txt/binary,"&lt;",EStr/binary>>,Token})
       end;
     {{text,Str},"",eof} -> [Token,{eof,{text,Str}}]
   end;
 tokenize({TZ,Str,Token}) ->
   [{Token,{TZ,Str}}].
 
-tz(nil,"<"++Str)                        -> {{tag,""},ws(Str)};
-tz(nil,[_|Str])                         -> {nil,Str};
+tz(nil,?m("<",Str))                   -> {{tag,""},ws(Str)};
+tz(nil,?d(_,Str))                     -> {nil,Str};
 
-tz({tag,""},"!--"++Str)                 -> {{comm,""},Str};
-tz({tag,""},"!"++Str)                   -> {{excl,""},ws(Str)};
-tz({tag,""},"?"++Str)                   -> {{que,""},ws(Str)};
-tz({tag,""},"/"++Str)                   -> {{end_tag,""},ws(Str)};
-tz({tag,Tag},Str) when ?endv(Str)       -> {{attr,"",{Tag,[]}},ws(Str)};
-tz({tag,Tag},[X|Str])when ?ok(X)        -> {{tag,Tag++[X]},Str};
+tz({tag,""},?m("!--",Str))            -> {{comm,""},Str};
+tz({tag,""},?m("!",Str))              -> {{'!',""},ws(Str)};
+tz({tag,""},?m("?",Str))              -> {{que,""},ws(Str)};
+tz({tag,""},?m("/",Str))              -> {{end_tag,""},ws(Str)};
+tz({tag,Tag},?D1(X,S))when ?ev(X)-> {{attr,"",{Tag,[]}},ws(S)};
+tz({tag,Tag},?D2(X,S))when ?ev(X)-> {{attr,"",{Tag,[]}},ws(S)};
+tz({tag,Tag},?d(X,Str))when ?ok(X)    -> {{tag,Tag++[X]},Str};
 
-tz({excl,DT},">"++Str)                  -> {text,Str,{exclamation,dc(DT)}};
-tz({excl,DT},[X|Str])                   -> {{excl,DT++[X]},Str};
+tz({'!',DT},?m(">",Str))              -> {text,Str,{'!',dc(DT)}};
+tz({'!',DT},?d(X,Str))                -> {{'!',DT++[X]},Str};
 
-tz({que,DT},"?>"++Str)                  -> {text,Str,{question,dc(DT)}};
-tz({que,DT},[X|Str])                    -> {{que,DT++[X]},Str};
+tz({que,DT},?m("?>",Str))             -> {text,Str,{'?',dc(DT)}};
+tz({que,DT},?d(X,Str))                -> {{que,DT++[X]},Str};
 
-tz({comm,Comm},"-->"++Str)              -> {text,Str,{comment,Comm}};
-tz({comm,Comm},[X|Str])                 -> {{comm,Comm++[X]},Str};
+tz({comm,Comm},?m("-->",Str))         -> {text,Str,{comment,Comm}};
+tz({comm,Comm},?d(X,Str))             -> {{comm,Comm++[X]},Str};
 
-tz({etag,Tag,Attrs},"/>"++Str)          -> {text,Str,{sc,Tag,Attrs}};
-tz({etag,"script",Attrs},">"++Str)      -> {script,Str,{open,"script",Attrs}};
-tz({etag,"style",Attrs},">"++Str)       -> {style,Str,{open,"style",Attrs}};
-tz({etag,Tag,Attrs},">"++Str)           -> {text,Str,{open,Tag,Attrs}};
+tz({etag,Tag,Attrs},?m("/>",Str))     -> {text,Str,{sc,Tag,Attrs}};
+tz({etag,"script",Attrs},?m(">",Str)) -> {script,Str,{open,"script",Attrs}};
+tz({etag,"style",Attrs},?m(">",Str))  -> {style,Str,{open,"style",Attrs}};
+tz({etag,Tag,Attrs},?m(">",Str))      -> {text,Str,{open,Tag,Attrs}};
 
-tz({end_tag,Tag},Str) when ?endv(Str)   -> {{end_tag,Tag,'>'},ws(Str)};
-tz({end_tag,Tag,'>'},">"++Str)          -> {text,Str,{close,dc(Tag)}};
-tz({end_tag,Tag},[X|Str])               -> {{end_tag,Tag++[X]},Str};
+tz({end_tag,Tag},?D1(X,S))when ?ev(X) -> {{end_tag,Tag,'>'},ws(S)};
+tz({end_tag,Tag},?D2(X,S))when ?ev(X) -> {{end_tag,Tag,'>'},ws(S)};
+tz({end_tag,Tag,'>'},?m(">",Str))     -> {text,Str,{close,dc(Tag)}};
+tz({end_tag,Tag},?d(X,Str))           -> {{end_tag,Tag++[X]},Str};
 
-tz({attr,"",{Tag,As}},S)when ?endv(S)   -> {{etag,dc(Tag),As},S};
-tz({attr,A,{T,As}},S)when ?endv(S)      -> {{eatt,{dc(A),T,As}},ws(S)};
-tz({attr,A,TAs},[X|Str])when ?ok(X)     -> {{attr,A++[X],TAs},Str};
+tz({attr,"",{Tag,As}},?D1(X,S))when ?ev(X) -> {{etag,dc(Tag),As},S};
+tz({attr,"",{Tag,As}},?D2(X,S))when ?ev(X) -> {{etag,dc(Tag),As},S};
+tz({attr,A,{T,As}},?D1(X,S))when ?ev(X)    -> {{eatt,{dc(A),T,As}},ws(S)};
+tz({attr,A,{T,As}},?D2(X,S))when ?ev(X)    -> {{eatt,{dc(A),T,As}},ws(S)};
+tz({attr,A,TAs},?d(X,Str))when ?ok(X) -> {{attr,A++[X],TAs},Str};
 
-tz({eatt,ATAs},"="++Str)                -> {{val,ATAs},ws(Str)};
-tz({eatt,{A,T,As}},S)                   -> {{attr,"",{T,As++[{A,""}]}},ws(S)};
+tz({eatt,ATAs},?m("=",Str))           -> {{val,ATAs},ws(Str)};
+tz({eatt,{A,T,As}},S)                 -> {{attr,"",{T,As++[{A,""}]}},ws(S)};
 
-tz({val,ATAs},[X|Str])when ?sq(X)       -> {{sqval,"",ATAs},Str};%singlequoted
-tz({val,ATAs},[X|Str])when ?dq(X)       -> {{dqval,"",ATAs},Str};%doublequoted
-tz({val,ATAs},Str)                      -> {{uqval,"",ATAs},Str};%unquoted
+tz({val,ATAs},?m("'",Str))            -> {{sqval,"",ATAs},Str};%singlequoted
+tz({val,ATAs},?m("\"",Str))           -> {{dqval,"",ATAs},Str};%doublequoted
+tz({val,ATAs},Str)                    -> {{uqval,"",ATAs},Str};%unquoted
 
-tz({sqval,V,{A,T,As}},[X|S])when ?sq(X) -> {{attr,"",{T,As++[{A,V}]}},ws(S)};
-tz({sqval,V,ATAs},[X|Str])              -> {{sqval,V++[X],ATAs},Str};
+tz({sqval,V,{A,T,As}},?m("'",S))      -> {{attr,"",{T,As++[{A,V}]}},ws(S)};
+tz({sqval,V,ATAs},?d(X,Str))          -> {{sqval,V++[X],ATAs},Str};
 
-tz({dqval,V,{A,T,As}},[X|S])when ?dq(X) -> {{attr,"",{T,As++[{A,V}]}},ws(S)};
-tz({dqval,V,ATAs},[X|Str])              -> {{dqval,V++[X],ATAs},Str};
+tz({dqval,V,{A,T,As}},?m("\"",S))     -> {{attr,"",{T,As++[{A,V}]}},ws(S)};
+tz({dqval,V,ATAs},?d(X,Str))          -> {{dqval,V++[X],ATAs},Str};
 
-tz({uqval,V,{A,T,As}},S)when ?endv(S)   -> {{attr,"",{T,As++[{A,V}]}},ws(S)};
-tz({uqval,V,ATAs},[X|Str])              -> {{uqval,V++[X],ATAs},Str};
+tz({uqval,V,{A,T,As}},?D1(X,S))when ?ev(X) -> {{attr,"",{T,As++[{A,V}]}},ws(S)};
+tz({uqval,V,{A,T,As}},?D2(X,S))when ?ev(X) -> {{attr,"",{T,As++[{A,V}]}},ws(S)};
+tz({uqval,V,ATAs},?d(X,Str))          -> {{uqval,V++[X],ATAs},Str};
 
-tz(script,Str)                          -> ff(script,Str);
-tz(style,Str)                           -> ff(style,Str);
-tz(text,Str)                            -> ff(text,Str);
+tz(script,Str)                        -> ff(script,Str);
+tz(style,Str)                         -> ff(style,Str);
+tz(text,Str)                          -> ff(text,Str);
 
-tz(X,"")                                -> {X,"",eof}.
+tz(X,"")                              -> {X,"",eof}.
 
 ff(What,Str) ->
   case ff(Str,ff(What),[1,2]) of
@@ -157,12 +173,12 @@ ff(style) -> "(.*)<(\\s*/\\s*style\\s*>.*)\$";
 ff(text)  -> "(.*)<(.*)\$".
 
 ff(Str,P,Groups) ->
-  case re:run(Str,P,[{capture,Groups,list},dotall,caseless,ungreedy]) of
+  case re:run(Str,P,[{capture,Groups,binary},dotall,caseless,ungreedy]) of
     {match,Ms} -> Ms;
     nomatch -> []
   end.
 
-ws([X|Str]) when ?ws(X) -> ws(Str);
+ws(?d(X,Str)) when ?ws(X) -> ws(Str);
 ws(Str) -> Str.
 
 dc(Str) -> string:to_lower(Str).
@@ -197,7 +213,7 @@ validate([{Str,Toks}|Vs]) ->
 
 tests() ->
   [{"<!DOCTYPE bla><P a=b c=d>",
-    [{exclamation,"doctype bla"},
+    [{'!',"doctype bla"},
      {tag,"p",[{"a","b"},{"c","d"}]},
      {end_tag,"p"}]},
    {"<head><B>< p><p ></z></ b></x>",
@@ -214,22 +230,22 @@ tests() ->
      {end_tag,"tag"}]},
    {"<a href=/a/bc/d.e>x</a>",
     [{tag,"a",[{"href","/a/bc/d.e"}]},
-     {text,"x"},
+     {text,<<"x">>},
      {end_tag,"a"}]},
    {"<a>...<...</a>",
     [{tag,"a",[]},
-     {text,"...&lt;..."},
+     {text,<<"...&lt;...">>},
      {end_tag,"a"}]},
    {"<P a=b c=d>hej<!-- tobbe --><b>svejsan</b>foo</p>grump<x x=y />",
     [{tag,"p",[{"a","b"},{"c","d"}]},
-     {text,"hej"},
+     {text,<<"hej">>},
      {comment," tobbe "},
      {tag,"b",[]},
-     {text,"svejsan"},
+     {text,<<"svejsan">>},
      {end_tag,"b"},
-     {text,"foo"},
+     {text,<<"foo">>},
      {end_tag,"p"},
-     {text,"grump"},
+     {text,<<"grump">>},
      {tag,"x",[{"x","y"}]},
      {end_tag,"x"}]}
   ].
