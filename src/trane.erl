@@ -35,16 +35,16 @@ eof({_Fun,Acc,_Stack}) -> Acc.
 
 maybe_emit(Token,State) ->
   case Token of
-    {sc,Tag,Attrs}   -> emit({end_tag,Tag},emit({tag,Tag,Attrs},State));
-    {open,Tag,Attrs} -> emit({tag,Tag,Attrs},push(Tag,State));
-    {close,Tag}      -> try emit({end_tag,Tag},pop(Tag,maybe_unroll(Tag,State)))
-                        catch bogus -> State
-                        end;
-    {comment,Cm}     -> emit({comment,Cm},State);
-    {'?',DT}    -> emit({'?',DT},State);
-    {'!',DT} -> emit({'!',DT},State);
-    {text,<<>>}        -> State;
-    {text,Text}      -> emit({text,Text},State)
+    {sc,Tag,Attrs}  -> emit({end_tag,Tag},emit({tag,Tag,Attrs},State));
+    {open,Tag,Attrs}-> emit({tag,Tag,Attrs},push(Tag,State));
+    {close,Tag}     -> try emit({end_tag,Tag},pop(Tag,maybe_unroll(Tag,State)))
+                       catch bogus -> State
+                       end;
+    {comment,Cm}    -> emit({comment,Cm},State);
+    {'?',DT}        -> emit({'?',DT},State);
+    {'!',DT}        -> emit({'!',DT},State);
+    {text,""}       -> State;
+    {text,Text}     -> emit({text,Text},State)
   end.
 
 emit(Token,{Fun,Acc,Stack}) -> {Fun,Fun(Token,Acc),Stack}.
@@ -88,16 +88,12 @@ maybe_unroll(Tag,{Fun,Acc,Stack}) ->
 -define(ev(X), ?ws(X); X==$>; X==$=).
 
 tokenize(Str) when is_integer(hd(Str))-> tokenize(list_to_binary(Str));
-tokenize(Str) when is_binary(Str) -> 
-  case ff(text,Str) of
-    {{tag,""},EStr,{text,Txt}} -> tokenize({text,EStr,{text,Txt}});
-    {{text,Str},"",eof} -> [{eof,{text,Str}}]
-  end;
+tokenize(Str) when is_binary(Str) -> tokenize({text,Str,{text,""}});
 
 tokenize({text,Str,Token}) ->
   case ff(text,Str) of
     {{tag,""},EStr,{text,Txt}} -> 
-      try [Token,{text,Txt}]++tokenize(t({tag,""},EStr))
+      try [Token,{text,Txt}]++tokenize(t({tag,""},ws(EStr)))
       catch _:_ -> TB = list_to_binary(Txt),
                    tokenize({text,<<TB/binary,"&lt;",EStr/binary>>,Token})
       end;
@@ -163,9 +159,9 @@ t(X,"")                                  -> {X,"",eof}.
 
 ff(What,Str) -> ff(What,Str,[]).
 
-ff(What,<<>>,A) -> {{text,lists:reverse(A)},"",eof};
-ff(What,?m("<",Str),A) -> {{tag,""},Str,{text,lists:reverse(A)}};
-ff(What,?d(H,Str),A) -> ff(What,Str,[H|A]).
+ff(_Wht,<<>>,A)        -> {{text,lists:reverse(A)},"",eof};
+ff(_Wht,?m("<",Str),A) -> {{tag,""},Str,{text,lists:reverse(A)}};
+ff(What,?d(H,Str),A)   -> ff(What,Str,[H|A]).
 
 % ff(What,Str) ->
 %   case ff(Str,ff(What),[1,2]) of
@@ -190,20 +186,20 @@ dc(Str) -> string:to_lower(Str).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Parsing real pages
-wget(Url) ->
-  inets:start(),
-  {ok, {_Rc, _Hdrs, Body}} = http:request(get, {Url, []}, [], []),
-  Body.
-
 file_parse(File) ->
   {ok,B} = file:read_file(File),
-  sax(B,fun(T,A)-> [T|A] end, []).
+  lists:reverse(sax(B,fun(T,A)-> [T|A] end, [])).
 
 wget_parse(Url) ->
   sax(wget(Url),fun(T,A)-> A++[T] end, []).
 
 wget_print(Url) ->
   io:fwrite("~s~n",[wget(Url)]).
+
+wget(Url) ->
+  inets:start(),
+  {ok, {_Rc, _Hdrs, Body}} = http:request(get, {Url, []}, [], []),
+  Body.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% ad-hoc unit test
@@ -239,22 +235,22 @@ tests() ->
      {end_tag,"tag"}]},
    {"<a href=/a/bc/d.e>x</a>",
     [{tag,"a",[{"href","/a/bc/d.e"}]},
-     {text,<<"x">>},
+     {text,"x"},
      {end_tag,"a"}]},
    {"<a>...<...</a>",
     [{tag,"a",[]},
-     {text,<<"...&lt;...">>},
+     {text,"...&lt;..."},
      {end_tag,"a"}]},
    {"<P a=b c=d>hej<!-- tobbe --><b>svejsan</b>foo</p>grump<x x=y />",
     [{tag,"p",[{"a","b"},{"c","d"}]},
-     {text,<<"hej">>},
+     {text,"hej"},
      {comment," tobbe "},
      {tag,"b",[]},
-     {text,<<"svejsan">>},
+     {text,"svejsan"},
      {end_tag,"b"},
-     {text,<<"foo">>},
+     {text,"foo"},
      {end_tag,"p"},
-     {text,<<"grump">>},
+     {text,"grump"},
      {tag,"x",[{"x","y"}]},
      {end_tag,"x"}]}
   ].
