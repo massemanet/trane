@@ -12,7 +12,8 @@
 -author('mats cronqvist').
 -export([sax/3
          , unit/0,unit/1
-         , wget_parse/1,wget_print/1]).
+         , wget_parse/1
+         , wget_print/1]).
 
 sax(Str,Fun,Acc) ->
   parse(Str,Fun,Acc).
@@ -36,14 +37,17 @@ maybe_emit(Token,State) ->
   case Token of
     {sc,Tag,Attrs}   -> emit({end_tag,Tag},emit({tag,Tag,Attrs},State));
     {open,Tag,Attrs} -> emit({tag,Tag,Attrs},push(Tag,State));
-    {close,Tag}      -> try emit({end_tag,Tag},pop(Tag,maybe_unroll(Tag,State)))
-                        catch bogus -> State
-                        end;
+    {close,Tag}      -> emit_end_tag(Tag,State);
     {comment,Cm}     -> emit({comment,Cm},State);
-    {'?',DT}    -> emit({'?',DT},State);
-    {'!',DT} -> emit({'!',DT},State);
-    {text,<<>>}        -> State;
+    {'?',DT}         -> emit({'?',DT},State);
+    {'!',DT}         -> emit({'!',DT},State);
+    {text,<<>>}      -> State;
     {text,Text}      -> emit({text,Text},State)
+  end.
+
+emit_end_tag(Tag,State) ->
+  try emit({end_tag,Tag},pop(Tag,maybe_unroll(Tag,State)))
+  catch bogus -> State
   end.
 
 emit(Token,{Fun,Acc,Stack}) -> {Fun,Fun(Token,Acc),Stack}.
@@ -244,5 +248,9 @@ tests() ->
      {end_tag,"p"},
      {text,<<"grump">>},
      {tag,"x",[{"x","y"}]},
-     {end_tag,"x"}]}
+     {end_tag,"x"}]},
+   {"<script>visual+basic = rules;</script>",
+    [{tag,"script",[]},
+     {text,<<"visual+basic = rules;">>},
+     {end_tag,"script"}]}
   ].
