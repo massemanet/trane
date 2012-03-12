@@ -114,6 +114,7 @@ tz({tag,""},?m("!--",Str))                -> {{comm,""},Str};
 tz({tag,""},?m("!",Str))                  -> {{'!',""},ws(Str)};
 tz({tag,""},?m("?",Str))                  -> {{que,""},ws(Str)};
 tz({tag,""},?m("/",Str))                  -> {{end_tag,""},ws(Str)};
+tz({tag,Tag},?m("/>",Str))                -> {text,Str,{sc,Tag,[]}};
 tz({tag,Tag},?D(X,S))when ?ev(X)          -> {{attr,"",{Tag,[]}},ws(S)};
 tz({tag,Tag},?d(X,Str))when ?ok(X)        -> {{tag,Tag++[X]},Str};
 
@@ -238,7 +239,7 @@ tests() ->
     [{tag,"a",[]},
      {text,<<"...&lt;...">>},
      {end_tag,"a"}]},
-   {"<P a=b c=d>hej<!-- tobbe --><b>svejsan</b>foo</p>grump<x x=y />",
+   {"<P a=b c=d>hej<!-- tobbe --><b>svejsan</b>foo</p>grump<br/><x x=y />",
     [{tag,"p",[{"a","b"},{"c","d"}]},
      {text,<<"hej">>},
      {comment," tobbe "},
@@ -248,6 +249,8 @@ tests() ->
      {text,<<"foo">>},
      {end_tag,"p"},
      {text,<<"grump">>},
+     {tag,"br",[]},
+     {end_tag,"br"},
      {tag,"x",[{"x","y"}]},
      {end_tag,"x"}]},
    {"<script>visual+basic = rules;</script>",
