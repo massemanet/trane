@@ -1,4 +1,4 @@
-%% -*- mode: erlang; erlang-indent-level: 2 -*-
+% -*- mode: erlang; erlang-indent-level: 2 -*-
 %%% Created : 10 May 2010 by mats cronqvist <masse@kreditor.se>
 %%% Copyright (c) 2010 Mats Cronqvist
 %%
@@ -190,7 +190,7 @@ dc(Str) -> string:to_lower(Str).
 %% Parsing real pages
 wget(Url) ->
   inets:start(),
-  {ok, {_Rc, _Hdrs, Body}} = http:request(get, {Url, []}, [], []),
+  {ok, {_Rc, _Hdrs, Body}} = httpc:request(get, {Url, []}, [], []),
   Body.
 
 wget_parse(Url) ->
