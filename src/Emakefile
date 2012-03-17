@@ -1,5 +1,0 @@
-%% -*- mode: erlang; erlang-indent-level: 2 -*-
-{'*',
- [{ outdir, "../ebin" },
-  debug_info
- ]}.

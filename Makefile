@@ -1,6 +1,5 @@
-all: 
-	(if [ ! -d ebin ]; then mkdir ebin; fi)
-	${MAKE} -C src
+all:
+	./rebar compile
 
 clean:
-	rm -rf ./ebin/*.beam
+	./rebar clean
