@@ -23,7 +23,7 @@ sax(Str,Fun,Acc) ->
 parse(Str,Fun,Acc) ->
   parse({Fun,Acc,[]},tokenize(Str)).
 
-parse({Fun,Acc,Stack}=State,[{Token,T}]) -> 
+parse({Fun,Acc,Stack}=State,[{Token,T}]) ->
   case Token of
     eof -> eof(unroll(Stack,{Fun,Acc,[]}));
     _   -> parse(maybe_emit(Token,State),tokenize(T))
@@ -61,7 +61,7 @@ unroll(X,State) ->
 
 maybe_unroll(Tag,{Fun,Acc,Stack}) ->
   case lists:member(Tag,Stack) of
-    true -> 
+    true ->
       %% close all open tags in this tags scope
       {Hd,Tl} = lists:splitwith(fun(T)-> T=/=Tag end,Stack),
       unroll(Hd,{Fun,Acc,Tl});
@@ -97,7 +97,7 @@ tokenize({TZ,Str}) ->
   tokenize(tz(TZ,Str));
 tokenize({text,Str,Token}) ->
   case ff(text,Str) of
-    {{tag,""},EStr,{text,Txt}} -> 
+    {{tag,""},EStr,{text,Txt}} ->
       try [Token,{text,Txt}]++tokenize({{tag,""},EStr})
       catch _:_ -> tokenize({text,<<Txt/binary,"&lt;",EStr/binary>>,Token})
       end;
@@ -167,18 +167,18 @@ tz(X,"")                                  -> {X,"",eof}.
 
 ff(What,Str) -> ff(What,Str,0,Str).
 
-ff(script,<<"</script>",Str/binary>>,N,Bin) -> 
+ff(script,<<"</script>",Str/binary>>,N,Bin) ->
   {Scr,_} = split_binary(Bin,N),
   {{tag,""},<<"/script>",Str/binary>>,{text,Scr}};
-ff(style,<<"</style>",Str/binary>>,N,Bin) -> 
+ff(style,<<"</style>",Str/binary>>,N,Bin) ->
   {Scr,_} = split_binary(Bin,N),
   {{tag,""},<<"/style>",Str/binary>>,{text,Scr}};
-ff(text,<<"<",Str/binary>>,N,Bin) -> 
+ff(text,<<"<",Str/binary>>,N,Bin) ->
   {Scr,_} = split_binary(Bin,N),
   {{tag,""},ws(Str),{text,Scr}};
-ff(_,<<>>,_,Str) -> 
+ff(_,<<>>,_,Str) ->
   {{text,Str},"",eof};
-ff(What,<<_,Str/binary>>,N,Bin) -> 
+ff(What,<<_,Str/binary>>,N,Bin) ->
   ff(What,Str,N+1,Bin).
 
 ws(?d(X,Str)) when ?ws(X) -> ws(Str);
@@ -208,7 +208,7 @@ unit() ->
   validate(tests()).
 
 validate([]) -> [];
-validate([{Str,Toks}|Vs]) -> 
+validate([{Str,Toks}|Vs]) ->
   [try Toks = sax(Str,fun(T,A)-> A++[T] end, []),Str
    catch C:R -> {C,R,erlang:get_stacktrace(),Str}
    end|validate(Vs)].
@@ -223,7 +223,7 @@ tests() ->
     [{tag,"head",[]},
      {tag,"b",[]},
      {tag,"p",[]},
-     {tag,"p",[]}, 
+     {tag,"p",[]},
      {end_tag,"p"},
      {end_tag,"p"},
      {end_tag,"b"},
