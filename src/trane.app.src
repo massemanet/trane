@@ -1,0 +1,12 @@
+{application, trane,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { trane_app, []}},
+  {env, []}
+ ]}.
