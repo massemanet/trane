@@ -3,3 +3,6 @@ all:
 
 clean:
 	./rebar clean
+
+test:
+	./rebar eunit

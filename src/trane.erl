@@ -11,7 +11,6 @@
 -module('trane').
 -author('mats cronqvist').
 -export([sax/3
-         , unit/0,unit/1
          , wget_parse/1
          , wget_print/1]).
 
@@ -200,61 +199,64 @@ wget_print(Url) ->
   io:fwrite("~s~n",[wget(Url)]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% ad-hoc unit test
-unit(N) when is_integer(N) ->
-  validate([lists:nth(N,tests())]).
+%% TESTING
 
-unit() ->
-  validate(tests()).
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
 
-validate([]) -> [];
-validate([{Str,Toks}|Vs]) ->
-  [try Toks = sax(Str,fun(T,A)-> A++[T] end, []),Str
-   catch C:R -> {C,R,erlang:get_stacktrace(),Str}
-   end|validate(Vs)].
-
-
-tests() ->
-  [{"<!DOCTYPE bla><P a=b c=d>",
-    [{'!',"doctype bla"},
-     {tag,"p",[{"a","b"},{"c","d"}]},
-     {end_tag,"p"}]},
-   {"<head><B>< p><p ></z></ b></x>",
-    [{tag,"head",[]},
+t_test_() ->
+  [?_assertEqual(
+     t_sax("<!DOCTYPE bla><P a=b c=d>"),
+     [{'!',"doctype bla"},
+      {tag,"p",[{"a","b"},{"c","d"}]},
+      {end_tag,"p"}]),
+   ?_assertEqual(
+     t_sax("<head><B>< p><p ></z></ b></x>"),
+     [{tag,"head",[]},
      {tag,"b",[]},
      {tag,"p",[]},
      {tag,"p",[]},
      {end_tag,"p"},
      {end_tag,"p"},
      {end_tag,"b"},
-     {end_tag,"head"}]},
-   {"<tag catt xatt=\"\" batt>",
+     {end_tag,"head"}]),
+   ?_assertEqual(
+     t_sax("<tag catt xatt=\"\" batt>"),
     [{tag,"tag",[{"catt",""},{"xatt",""},{"batt",""}]},
-     {end_tag,"tag"}]},
-   {"<a href=/a/bc/d.e>x</a>",
+     {end_tag,"tag"}]),
+   ?_assertEqual(
+     t_sax("<a href=/a/bc/d.e>x</a>"),
     [{tag,"a",[{"href","/a/bc/d.e"}]},
      {text,<<"x">>},
-     {end_tag,"a"}]},
-   {"<a>...<...</a>",
+     {end_tag,"a"}]),
+   ?_assertEqual(
+     t_sax("<a>...<...</a>"),
     [{tag,"a",[]},
      {text,<<"...&lt;...">>},
-     {end_tag,"a"}]},
-   {"<P a=b c=d>hej<!-- tobbe --><b>svejsan</b>foo</p>grump<br/><x x=y />",
+     {end_tag,"a"}]),
+   ?_assertEqual(
+     t_sax("<P a=b c=d>hej<!-- te --><b>svejs</b>foo</p>grmp<br/><x x=y />"),
     [{tag,"p",[{"a","b"},{"c","d"}]},
      {text,<<"hej">>},
-     {comment," tobbe "},
+     {comment," te "},
      {tag,"b",[]},
-     {text,<<"svejsan">>},
+     {text,<<"svejs">>},
      {end_tag,"b"},
      {text,<<"foo">>},
      {end_tag,"p"},
-     {text,<<"grump">>},
+     {text,<<"grmp">>},
      {tag,"br",[]},
      {end_tag,"br"},
      {tag,"x",[{"x","y"}]},
-     {end_tag,"x"}]},
-   {"<script>visual+basic = rules;</script>",
+     {end_tag,"x"}]),
+   ?_assertEqual(
+     t_sax("<script>visual+basic = rules;</script>"),
     [{tag,"script",[]},
      {text,<<"visual+basic = rules;">>},
-     {end_tag,"script"}]}
+     {end_tag,"script"}])
   ].
+
+t_sax(Str) ->
+  sax(Str,fun(T,A)-> A++[T] end,[]).
+
+-endif.
