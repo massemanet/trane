@@ -14,6 +14,9 @@
          , wget_parse/1
          , wget_print/1]).
 
+-ignore_xref(
+   [sax/3,wget_parse/1,wget_print/1]).
+
 sax(Str,Fun,Acc) ->
   parse(Str,Fun,Acc).
 

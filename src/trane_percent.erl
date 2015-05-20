@@ -13,6 +13,9 @@
 -author('masse').
 -export([encode/1,decode/1]).
 
+-ignore_xref(
+   [encode/1,decode/1]).
+
 %% rfc 3986
 %% unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~"
 -define(is_unreserved(C),
