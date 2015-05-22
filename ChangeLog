@@ -1,0 +1,241 @@
+commit 2eed7b1b3a19d038c6e2a4a4ad0a4cf5fde6698e
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Fri May 22 14:03:43 2015 +0200
+
+    v1.0.0
+
+src/trane.app.src
+
+commit c29e76905e769964d5a8bbd974aaca11a1f80e69
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Fri May 22 14:03:17 2015 +0200
+
+    encode/decode according to html4 form standard
+    http://www.w3.org/TR/html4/interact/forms.html#h-17.13.4.2
+
+src/trane_percent.erl
+
+commit 2e898fa298451e7e279a2c7b805dfd30931fadc5
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Wed May 20 15:23:19 2015 +0200
+
+    vsn 0.9.9
+
+src/trane.app.src
+
+commit 5bd92279407808ea79f932a09f26a9fc6c794932
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Wed May 20 15:18:08 2015 +0200
+
+    much improved makefile
+
+Makefile
+bin/release.sh
+src/trane.erl
+src/trane_percent.erl
+src/trane_poster.erl
+
+commit 00c1b57732bd4609881698f00044167b363f2e96
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Wed May 20 13:09:50 2015 +0200
+
+    add rfc3986 decoder
+
+src/trane_percent.erl
+
+commit c4a35b6529e435bf2000a8aac7fc853508b8fa64
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Wed May 20 11:34:12 2015 +0200
+
+    introduce trane_percent to do RFC3986 encode/decode
+
+src/trane_percent.erl
+
+commit 50da58359c14f9b860a19a5c875feeeafe7f8b39
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Wed May 20 11:33:27 2015 +0200
+
+    use eunit
+
+.gitignore
+Makefile
+src/trane.erl
+
+commit 07eb6d8a7a3b818ed27d7dd79e66ff4f8f017fef
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Sat Mar 28 16:08:25 2015 +0100
+
+    ignore
+
+.gitignore
+
+commit 9f75d2ab0c61f1d6831c0110b3940cd8ebffd262
+Author: mats cronqvist <masse@klarna.com>
+Date:   Fri Mar 27 12:39:18 2015 +0100
+
+    embryo to POST handler
+
+src/trane_poster.erl
+
+commit bef909f19f4059284fb3cce73390a8d555e49609
+Author: mats cronqvist <masse@klarna.com>
+Date:   Fri Mar 27 12:38:39 2015 +0100
+
+    rebarify
+
+ebin/trane.app
+src/Makefile
+src/trane.app.src
+src/trane_app.erl
+src/trane_sup.erl
+
+commit 6c7cbd5ae2e3b38ddb743ce6a886511643c51f68
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Thu Mar 26 17:50:31 2015 +0100
+
+    ignores
+
+.gitignore
+
+commit 4cc20f4e5c2363b862b68be454f4c7f96ea9d442
+Author: mats cronqvist <masse@klarna.com>
+Date:   Thu Oct 10 11:24:18 2013 +0200
+
+    whitespace
+
+src/trane.erl
+
+commit 1878e94008827cd5152730167d7d5b72f2774c4c
+Author: mats cronqvist <masse@klarna.com>
+Date:   Sat Mar 17 20:19:15 2012 +0100
+
+    otp 15 fix
+
+src/trane.erl
+
+commit 66281e794655bcd4d1b0c5f611ad216a059b034f
+Author: mats cronqvist <masse@klarna.com>
+Date:   Sat Mar 17 20:00:42 2012 +0100
+
+    rebarified
+
+Makefile
+ebin/trane.app
+rebar
+rebar.config
+src/Emakefile
+
+commit 822c00ea5e28fea42d81f92ecca20a8cf6aea1e0
+Author: Per Melin <p@greendale.se>
+Date:   Mon Mar 12 15:09:17 2012 +0100
+
+    Self-closing tags without attributes was broken
+    Parsing <br/> would either crash or return {text,<<"&lt;br/>">>}
+    depending on what came before it.
+
+src/trane.erl
+
+commit 01a6c327a65910a2e36dda7d51ac43481809754b
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Thu Nov 11 23:58:34 2010 +0100
+
+    lost re
+
+src/trane.erl
+
+commit d3abe4f42ead6348347207402cd2fac8e04d1856
+Author: mats cronqvist <masse@klarna.com>
+Date:   Mon Nov 8 09:56:01 2010 +0100
+
+    test case for <script> tag
+
+src/trane.erl
+
+commit 0d9b2c3788f9f76a456f80d3637d3f9efde7e0cd
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Sat Jun 12 11:47:22 2010 +0200
+
+    returning text as string() instead of binary()
+
+src/trane.erl
+
+commit 0517b919e748f00f978f51db3d87c79117e5e656
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Wed Jun 9 13:20:45 2010 +0200
+
+    speedup, wip
+
+src/trane.erl
+
+commit b0b94ae11767133bccbe75c5a8fdfaf40bd7f7f6
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Mon May 31 08:55:45 2010 +0200
+
+    refactored match macros
+
+src/trane.erl
+
+commit b59d9da1bfc2aa9af1ccd4cbb6b91a7ebe646d52
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Mon May 31 01:47:45 2010 +0200
+
+    representing the input string as a binary instead of a list
+
+src/trane.erl
+
+commit 07e028d0dca0c59d8f31819981460bbf797dae08
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Tue May 18 14:36:46 2010 +0200
+
+    refactor
+
+src/trane.erl
+
+commit cb559b44c548e9e6d6a4135ae77ed5abc8f82457
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Tue May 18 09:08:36 2010 +0200
+
+    makefiles
+
+Emakefile
+Makefile
+src/Emakefile
+src/Makefile
+src/trane.erl
+
+commit 733f93d84c4eec324064184ae7fe9c449a0fb2cc
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Fri May 14 19:19:18 2010 +0200
+
+    handling spurious '>'
+
+src/trane.erl
+
+commit e0e336e7e6323b12f0087c35df13ffa50b78d322
+Author: Torbjorn Tornkvist <tobbe@myggan.(none)>
+Date:   Fri May 14 19:35:32 2010 +0800
+
+    Added makefile support.
+
+Emakefile
+Makefile
+
+commit 6e39fe23ec93976f456562a2757e97c34889f768
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Fri May 14 13:23:25 2010 +0200
+
+    whitespace bug
+
+.gitignore
+src/trane.erl
+
+commit f6d380b0fa5a15dd914a5dff15e498d4585be5a0
+Author: mats cronqvist <mats.cronqvist@gmail.com>
+Date:   Fri May 14 13:14:29 2010 +0200
+
+    first commit
+
+.gitignore
+LICENSE
+README
+src/trane.erl
