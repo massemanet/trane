@@ -1,9 +1,27 @@
-commit 2eed7b1b3a19d038c6e2a4a4ad0a4cf5fde6698e
+commit d6e92bc8028e655daad73038c52c1853ec68f88b
+Author: mats cronqvist <masse@klarna.com>
+Date:   Thu Oct 8 10:55:12 2015 +0200
+
+    v1.0.1
+
+src/trane.app.src
+
+commit 286267335895c2eb119f6b6e091e28a1ee083b06
+Author: mats cronqvist <masse@klarna.com>
+Date:   Thu Oct 8 10:54:50 2015 +0200
+
+    better test
+
+rebar.config
+
+commit c2c631db9f07091000ebcc5d5248941bc26c29a6
 Author: mats cronqvist <mats.cronqvist@gmail.com>
 Date:   Fri May 22 14:03:43 2015 +0200
 
     v1.0.0
 
+AUTHORS
+ChangeLog
 src/trane.app.src
 
 commit c29e76905e769964d5a8bbd974aaca11a1f80e69
