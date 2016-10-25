@@ -10,9 +10,7 @@
 
 -module('trane').
 -author('mats cronqvist').
--export([sax/3
-         , wget_parse/1
-         , wget_print/1]).
+-export([sax/3, wget_parse/1, wget_print/1, wget_sax/3]).
 
 -ignore_xref(
    [sax/3,wget_parse/1,wget_print/1]).
@@ -190,16 +188,19 @@ dc(Str) -> string:to_lower(Str).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Parsing real pages
+wget_parse(Url) ->
+  wget_sax(Url,fun(T,A)-> A++[T] end,[]).
+
+wget_sax(Url,Fun,A0) ->
+  sax(wget(Url),Fun,A0).
+
+wget_print(Url) ->
+  io:fwrite("~s~n",[wget(Url)]).
+
 wget(Url) ->
   inets:start(),
   {ok, {_Rc, _Hdrs, Body}} = httpc:request(get, {Url, []}, [], []),
   Body.
-
-wget_parse(Url) ->
-  sax(wget(Url),fun(T,A)-> A++[T] end, []).
-
-wget_print(Url) ->
-  io:fwrite("~s~n",[wget(Url)]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% TESTING
