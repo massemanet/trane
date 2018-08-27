@@ -1,6 +1,8 @@
-\#*
-.\#*
-*~
 *beam
-/ebin/
+*~
+.\#*
 /.eunit/
+/_build/
+/ebin/
+\#*
+rebar.lock
