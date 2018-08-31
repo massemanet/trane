@@ -166,10 +166,6 @@ tz(text,Str)                              -> ff(text,Str);
 tz(X,"")                                  -> {X,"",eof}.
 
 %% fast forward
-ff(script,Str) ->
-  
-
-
 ff(What,Str) -> ff(What,Str,0,Str).
 
 ff(script,<<Tag:9/binary,Str/binary>>,N,Bin) when Tag=:=<<"</script>">>;Tag=:=<<"</SCRIPT>">> ->
