@@ -172,10 +172,10 @@ ff(script,Str) ->
 
 ff(What,Str) -> ff(What,Str,0,Str).
 
-ff(script,<<"</script>",Str/binary>>,N,Bin) ->
+ff(script,<<Tag:9/binary,Str/binary>>,N,Bin) when Tag=:=<<"</script>">>;Tag=:=<<"</SCRIPT>">> ->
   {Scr,_} = split_binary(Bin,N),
   {{tag,""},<<"/script>",Str/binary>>,{text,Scr}};
-ff(style,<<"</style>",Str/binary>>,N,Bin) ->
+ff(style,<<Tag:8/binary,Str/binary>>,N,Bin) when Tag=:=<<"</style>">>;Tag=:=<<"</STYLE>">> ->
   {Scr,_} = split_binary(Bin,N),
   {{tag,""},<<"/style>",Str/binary>>,{text,Scr}};
 ff(text,<<"<",Str/binary>>,N,Bin) ->
