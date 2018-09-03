@@ -168,6 +168,22 @@ tz(X,"")                                  -> {X,"",eof}.
 %% fast forward
 ff(What,Str) -> ff(What,Str,0,Str).
 
+-define(DQ_STRING, "\"([^\"]|\\\")*\"").
+-define(SQ_STRING, "'([^']|\\')*'").
+-define(TEXT, "[^<]*").
+-define(END_SCRIPT, "<\\s*/\\s*script\\s*>").
+-define(END_STYLE, "<\\s*/\\s*style\\s*>").
+-define(OR(REs), string:join(REs, "|")).
+
+ff_re() ->
+  re:compile(?OR([?DQ_STRING, ?SQ_STRING, ?TEXT])).
+
+ff_end_script() ->
+  re:compile(?END_SCRIPT).
+
+ff_end_style() ->
+  re:compile(?END_STYLE).
+
 ff(script,<<Tag:9/binary,Str/binary>>,N,Bin) when Tag=:=<<"</script>">>;Tag=:=<<"</SCRIPT>">> ->
   {Scr,_} = split_binary(Bin,N),
   {{tag,""},<<"/script>",Str/binary>>,{text,Scr}};
