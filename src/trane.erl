@@ -1,4 +1,4 @@
-% -*- mode: erlang; erlang-indent-level: 2 -*-
+%%% -*- mode: erlang; erlang-indent-level: 2 -*-
 %%% Created : 10 May 2010 by mats cronqvist <masse@kreditor.se>
 %%% Copyright (c) 2010 Mats Cronqvist
 %%
@@ -12,20 +12,32 @@
 -author('mats cronqvist').
 -export([sax/3, wget_parse/1, wget_print/1, wget_sax/3]).
 
--ignore_xref(
-   [sax/3,wget_parse/1,wget_print/1]).
+-export([check_regexps/0]).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% API
 
 sax(Str,Fun,Acc) ->
   parse(Str,Fun,Acc).
 
+wget_parse(Url) ->
+  wget_sax(Url,fun(T,A)-> A++[T] end,[]).
+
+wget_sax(Url,Fun,A0) ->
+  sax(wget(Url),Fun,A0).
+
+wget_print(Url) ->
+  io:fwrite("~s~n",[wget(Url)]).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% parser
+
 parse(Str,Fun,Acc) ->
   parse({Fun,Acc,[]},tokenize(Str)).
 
 parse({Fun,Acc,Stack}=State,[{Token,T}]) ->
   case Token of
-    eof -> eof(unroll(Stack,{Fun,Acc,[]}));
+    eof -> erlang:display({State,Token,T}),eof(unroll(Stack,{Fun,Acc,[]}));
     _   -> parse(maybe_emit(Token,State),tokenize(T))
   end;
 parse(State,[Token|Ts]) ->
@@ -42,6 +54,8 @@ maybe_emit(Token,State) ->
     {'?',DT}         -> emit({'?',DT},State);
     {'!',DT}         -> emit({'!',DT},State);
     {text,<<>>}      -> State;
+    {script,_}       -> State;
+    {style,_}        -> State;
     {text,Text}      -> emit({text,Text},State)
   end.
 
@@ -73,15 +87,10 @@ maybe_unroll(Tag,{Fun,Acc,Stack}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% tokenizer
 
-%tz(<<>>,O)->lists:reverse(O);
-%   (<<X:8/integer,R/binary>>,O)->tz(R,[X|O])
-%end.
-
-
--define(m(X,B),<<X,B/binary>>). % match
--define(d(X,B),<<X:8/integer,B/binary>>). % decompose
--define(M(X,B),<<X,_/binary>> = B). % match
--define(D(X,B),<<X:8/integer,_/binary>> = B). % decompose
+-define(m(X,B),<<X,B/binary>>).               % consume - match
+-define(d(X,B),<<X:8/integer,B/binary>>).     % consume - decompose
+-define(M(X,B),<<X,_/binary>> = B).           % peek - match
+-define(D(X,B),<<X:8/integer,_/binary>> = B). % peek - decompose
 
 -define(ok(X),$a=<X,X=<$z;$A=<X,X=<$Z;$0=<X,X=<$9;X==$_;X==$-;X==$:).
 -define(ws(X),X==$\s;X==$\r;X==$\n;X==$\t).
@@ -110,7 +119,7 @@ tokenize({TZ,Str,Token}) ->
 tz(nil,?m("<",Str))                       -> {{tag,""},ws(Str)};
 tz(nil,?d(_,Str))                         -> {nil,Str};
 
-tz({tag,""},?m("!--",Str))                -> {{comm,""},Str};
+tz({tag,""},?m("!--",Str))                -> ff(comment,Str);
 tz({tag,""},?m("!",Str))                  -> {{'!',""},ws(Str)};
 tz({tag,""},?m("?",Str))                  -> {{que,""},ws(Str)};
 tz({tag,""},?m("/",Str))                  -> {{end_tag,""},ws(Str)};
@@ -123,9 +132,6 @@ tz({'!',DT},?d(X,Str))                    -> {{'!',DT++[X]},Str};
 
 tz({que,DT},?m("?>",Str))                 -> {text,Str,{'?',dc(DT)}};
 tz({que,DT},?d(X,Str))                    -> {{que,DT++[X]},Str};
-
-tz({comm,Comm},?m("-->",Str))             -> {text,Str,{comment,Comm}};
-tz({comm,Comm},?d(X,Str))                 -> {{comm,Comm++[X]},Str};
 
 tz({etag,Tag,Attrs},?m("/>",Str))         -> {text,Str,{sc,Tag,Attrs}};
 tz({etag,"script",Attrs},?m(">",Str))     -> {script,Str,{open,"script",Attrs}};
@@ -166,55 +172,67 @@ tz(text,Str)                              -> ff(text,Str);
 tz(X,"")                                  -> {X,"",eof}.
 
 %% fast forward
-ff(What,Str) -> ff(What,Str,0,Str).
 
--define(DQ_STRING, "\"([^\"]|\\\")*\"").
--define(SQ_STRING, "'([^']|\\')*'").
--define(TEXT, "[^<]*").
--define(END_SCRIPT, "<\\s*/\\s*script\\s*>").
--define(END_STYLE, "<\\s*/\\s*style\\s*>").
--define(OR(REs), string:join(REs, "|")).
+%% regexps
+end_text() -> "<".
+end_script() -> "</script\\s*>".
+end_style() -> "</style\\s*>".
+end_comment() -> "-->".
 
-ff_re() ->
-  re:compile(?OR([?DQ_STRING, ?SQ_STRING, ?TEXT])).
+%% pre-compiled versions of the regexps
+end_re(text) ->
+  {re_pattern,0,0,0,
+   <<69,82,67,80,73,0,0,0,1,0,0,0,17,0,0,0,255,255,255,255,
+     255,255,255,255,60,0,0,0,0,0,0,0,0,0,64,0,0,0,0,0,0,0,
+     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,131,0,5,30,
+     60,120,0,5,0>>};
+end_re(script) ->
+  {re_pattern,0,0,0,
+   <<69,82,67,80,91,0,0,0,1,0,0,0,81,0,0,0,255,255,255,255,
+     255,255,255,255,60,0,62,0,0,0,0,0,0,0,64,0,0,0,0,0,0,0,
+     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,131,0,23,
+     30,60,30,47,30,115,30,99,30,114,30,105,30,112,30,116,
+     94,9,30,62,120,0,23,0>>};
+end_re(style) ->
+  {re_pattern,0,0,0,
+   <<69,82,67,80,89,0,0,0,1,0,0,0,81,0,0,0,255,255,255,255,
+     255,255,255,255,60,0,62,0,0,0,0,0,0,0,64,0,0,0,0,0,0,0,
+     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,131,0,21,
+     30,60,30,47,30,115,30,116,30,121,30,108,30,101,94,9,30,
+     62,120,0,21,0>>};
+end_re(comment) ->
+  {re_pattern,0,0,0,
+   <<69,82,67,80,77,0,0,0,1,0,0,0,81,0,0,0,255,255,255,255,
+     255,255,255,255,45,0,62,0,0,0,0,0,0,0,64,0,0,0,0,0,0,0,
+     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,131,0,9,30,
+     45,30,45,30,62,120,0,9,0>>}.
 
-ff_end_script() ->
-  re:compile(?END_SCRIPT).
+ff(What, String) ->
+  case re:split(String, end_re(What), [{parts, 2}]) of
+    [Scr, Str] -> mangle(What,Scr,Str);
+    _ -> {{text,String},"",eof}
+  end.
 
-ff_end_style() ->
-  re:compile(?END_STYLE).
-
-ff(script,<<Tag:9/binary,Str/binary>>,N,Bin) when Tag=:=<<"</script>">>;Tag=:=<<"</SCRIPT>">> ->
-  {Scr,_} = split_binary(Bin,N),
-  {{tag,""},<<"/script>",Str/binary>>,{text,Scr}};
-ff(style,<<Tag:8/binary,Str/binary>>,N,Bin) when Tag=:=<<"</style>">>;Tag=:=<<"</STYLE>">> ->
-  {Scr,_} = split_binary(Bin,N),
-  {{tag,""},<<"/style>",Str/binary>>,{text,Scr}};
-ff(text,<<"<",Str/binary>>,N,Bin) ->
-  {Scr,_} = split_binary(Bin,N),
-  {{tag,""},ws(Str),{text,Scr}};
-ff(_,<<>>,_,Str) ->
-  {{text,Str},"",eof};
-ff(What,<<_,Str/binary>>,N,Bin) ->
-  ff(What,Str,N+1,Bin).
+mangle(text, Scr, Str)    -> {{tag,""},ws(Str),{text,Scr}};
+mangle(script, Scr, Str)  -> {{tag,""},<<"/script>",Str/binary>>,{script,Scr}};
+mangle(style, Scr, Str)   -> {{tag,""},<<"/style>",Str/binary>>,{style,Scr}};
+mangle(comment, Scr, Str) -> {text,Str,{comment,Scr}}.
 
 ws(?d(X,Str)) when ?ws(X) -> ws(Str);
 ws(Str) -> Str.
 
 dc(Str) -> string:to_lower(Str).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Parsing real pages
-wget_parse(Url) ->
-  wget_sax(Url,fun(T,A)-> A++[T] end,[]).
-
-wget_sax(Url,Fun,A0) ->
-  sax(wget(Url),Fun,A0).
-
-wget_print(Url) ->
-  io:fwrite("~s~n",[wget(Url)]).
-
 wget(Url) ->
   inets:start(),
   {ok, {_Rc, _Hdrs, Body}} = httpc:request(get, {Url, []}, [], []),
   Body.
+
+check_regexps() ->
+  [is_equal({ok, end_re(text)},    catch re:compile(end_text(), [caseless])),
+   is_equal({ok, end_re(script)},  catch re:compile(end_script(), [caseless])),
+   is_equal({ok, end_re(style)},   catch re:compile(end_style(), [caseless])),
+   is_equal({ok, end_re(comment)}, catch re:compile(end_comment(), [caseless]))].
+
+is_equal(A, A) -> true;
+is_equal(_, _) -> false.
