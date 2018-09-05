@@ -39,12 +39,14 @@ parse(Str, Fun, Acc) when is_binary(Str) ->
   R = mk_regexps(),
   parse_loop(#state{fn=Fun, acc=Acc, res=R}, tokenize({text, Str, []}, R)).
 
-parse_loop(State, [{Token, T}]) ->
+parse_loop(State, [{Token, Trailing}]) ->
   case Token of
-    eof -> erlang:display({trailing,T}),
-           NS = maybe_emit(Token, State),
-           eof(unroll(NS#state.stack, NS#state{stack=[]}));
-    _   -> parse_loop(maybe_emit(Token, State), tokenize(T, State#state.res))
+    eof ->
+      NS = maybe_emit(Token, State),
+      NNS = unroll(NS#state.stack, NS#state{stack=[]}),
+      eof(maybe_emit(Trailing, NNS));
+    _   ->
+      parse_loop(maybe_emit(Token, State), tokenize(Trailing, State#state.res))
   end;
 parse_loop(State, [Token|Ts]) ->
   parse_loop(maybe_emit(Token, State), Ts).
@@ -80,8 +82,8 @@ push(Tag, State = #state{stack=Stack}) ->
 pop(Tag, State = #state{stack=[Tag|Stack]}) ->
   State#state{stack = Stack}.
 
-unroll(X, State) ->
-  lists:foldl(fun(T, S) -> emit({end_tag, T}, S) end, State, X).
+unroll(Stack, State) ->
+  lists:foldl(fun(Item, S) -> emit({end_tag, Item}, S) end, State, Stack).
 
 maybe_unroll(Tag, State = #state{stack=Stack}) ->
   case lists:member(Tag, Stack) of
