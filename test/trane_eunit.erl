@@ -19,12 +19,14 @@ t_script_test_() ->
    ?_assertEqual(
       [{tag,"script",[{"type","/text/javascript"}]},
        {script,<<"foo(\"<\\\\/script>\");">>},
-       {end_tag,"script"}],
+       {end_tag,"script"},
+       {text,<<"0">>}],
       t_sax(lists:nth(3, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},
        {script,<<"   foo(\"<\\/script>\"); ">>},
-       {end_tag,"script"}],
+       {end_tag,"script"},
+       {text,<<"1">>}],
       t_sax(lists:nth(4, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},{end_tag,"script"}],
@@ -32,7 +34,8 @@ t_script_test_() ->
    ?_assertEqual(
       [{tag,"script",[]},
        {script,<<" foo('< /script>');">>},
-       {end_tag,"script"}],
+       {end_tag,"script"},
+       {text,<<"2">>}],
       t_sax(lists:nth(6, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},{end_tag,"script"}],
@@ -40,7 +43,8 @@ t_script_test_() ->
    ?_assertEqual(
       [{tag,"script",[]},
        {script,<<" foo(\"</ script>\");">>},
-       {end_tag,"script"}],
+       {end_tag,"script"},
+       {text,<<"3">>}],
       t_sax(lists:nth(8, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},{end_tag,"script"}],
@@ -48,12 +52,14 @@ t_script_test_() ->
    ?_assertEqual(
       [{tag,"script",[]},
        {script,<<" foo(\"">>},
-       {end_tag,"script"}],
+       {end_tag,"script"},
+       {text,<<"4">>}],
       t_sax(lists:nth(10, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},
        {script,<<" foo(\"">>},
-       {end_tag,"script"}],
+       {end_tag,"script"},
+       {text,<<"5">>}],
       t_sax(lists:nth(11, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},
@@ -62,17 +68,20 @@ t_script_test_() ->
    ?_assertEqual(
       [{tag,"script",[]},
        {script,<<" foo(\"">>},
-       {end_tag,"script"}],
+       {end_tag,"script"},
+       {text,<<"6">>}],
       t_sax(lists:nth(13, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},
        {script,<<" foo <script> foo(\"">>},
-       {end_tag,"script"}],
+       {end_tag,"script"},
+       {text,<<"7">>}],
       t_sax(lists:nth(14, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},
        {script,<<" foo(\"<\\\\/script>\")">>},
-       {end_tag,"script"}],
+       {end_tag,"script"},
+       {text,<<"8">>}],
       t_sax(lists:nth(15, Lines)))].
 
 t_basic_test_() ->
@@ -139,8 +148,14 @@ t_basic_test_() ->
        {end_tag,"script"}],
       t_sax(lists:nth(9, Lines))),
    ?_assertEqual(
-      [{text,"<\\"}],
-      t_sax(lists:nth(10, Lines)))].
+      [{text,<<"&lt;\\">>}],
+      t_sax(lists:nth(10, Lines))),
+   ?_assertEqual(
+      [{text,<<"head">>},
+       {tag,"a",[]},
+       {end_tag,"a"},
+       {text,<<"tail">>}],
+      t_sax(lists:nth(11, Lines)))].
 
 t_sax(Str) ->
   trane:sax(Str,fun(T,A)-> A++[T] end,[]).
