@@ -37,12 +37,13 @@ parse(Str, Fun, Acc) when ?is_str(Str) ->
   parse(list_to_binary(Str), Fun, Acc);
 parse(Str, Fun, Acc) when is_binary(Str) ->
   R = mk_regexps(),
-  parse_loop(#state{fn=Fun, acc=Acc, res=R}, tokenize(tz(nil, Str, R), R)).
+  parse_loop(#state{fn=Fun, acc=Acc, res=R}, tokenize({text, Str, []}, R)).
 
 parse_loop(State, [{Token, T}]) ->
   case Token of
-    eof -> erlang:display({State, Token, T}),
-           eof(unroll(State#state.stack, State#state{stack=[]}));
+    eof -> erlang:display({trailing,T}),
+           NS = maybe_emit(Token, State),
+           eof(unroll(NS#state.stack, NS#state{stack=[]}));
     _   -> parse_loop(maybe_emit(Token, State), tokenize(T, State#state.res))
   end;
 parse_loop(State, [Token|Ts]) ->
@@ -56,6 +57,7 @@ maybe_emit(Token, State) ->
     {open, Tag, Attrs}-> emit({tag, Tag, Attrs}, push(Tag, State));
     {close, Tag}      -> emit_end_tag(Tag, State);
     {text, <<>>}      -> State;
+    eof               -> State;
     {'?', DT}         -> emit({'?', DT}, State);
     {comment, Comment}-> emit({comment, Comment}, State);
     {'!', DT}         -> emit({'!', DT}, State);
@@ -66,7 +68,7 @@ maybe_emit(Token, State) ->
 
 emit_end_tag(Tag, State) ->
   try emit({end_tag, Tag}, pop(Tag, maybe_unroll(Tag, State)))
-  catch bogus -> State
+  catch close_without_open -> State
   end.
 
 emit(Token, State = #state{fn=Fun, acc=Acc}) ->
@@ -89,7 +91,7 @@ maybe_unroll(Tag, State = #state{stack=Stack}) ->
       unroll(Hd, State#state{stack=Tl});
     false->
       %% close tag has no open tag; drop it
-      throw(bogus)
+      throw(close_without_open)
   end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -112,20 +114,16 @@ tokenize({TZ, Str}, R) ->
   tokenize(tz(TZ, Str, R), R);
 tokenize({text, Str, Token}, R) ->
   case ff(text, Str, R) of
-    {{tag, ""}, EStr, {text, Txt}} ->
+    {{tag, ""}, T, {text, Txt}} ->
       %% we've found a '<'. try to treat it as a tag, if that fails, s/</&lt;/
-      try [Token, {text, Txt}]++tokenize({{tag, ""}, EStr}, R)
-      catch _:_ -> tokenize({text, <<Txt/binary, "&lt;", EStr/binary>>, Token}, R)
+      try lists:flatten([Token, {text, Txt}]++tokenize({{tag, ""}, T}, R))
+      catch _:_ -> tokenize({text, <<Txt/binary, "&lt;", T/binary>>, Token}, R)
       end;
     {{text, Str}, "", eof} ->
-      [Token, {eof, {text, Str}}]
+      lists:flatten([Token, {eof, {text, Str}}])
   end;
 tokenize({TZ, Str, Token}, _) ->
   [{Token, {TZ, Str}}].
-
-%% starting tokenizer in 'nil' state, fast-forvward until '<'
-tz(nil, ?m("<", Str), _) -> {{tag, ""}, ws(Str)};
-tz(nil, ?d(_, Str), _)   -> {nil, Str};
 
 %% we found a '<', now in tag context
 tz({tag, ""}, ?m("!--", Str), R)         -> ff(comment, Str, R);

@@ -6,7 +6,76 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-t_test_() ->
+t_script_test_() ->
+  {ok, X} = file:read_file("../test/script-tag.html"),
+  Lines = re:split(X, "\n"),
+
+  [?_assertEqual(
+      [{comment,<<" renders: \"0 1 2 3 4 5 6 7 8\" ">>}],
+      t_sax(lists:nth(1, Lines))),
+   ?_assertEqual(
+      [],
+      t_sax(lists:nth(2, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[{"type","/text/javascript"}]},
+       {script,<<"foo(\"<\\\\/script>\");">>},
+       {end_tag,"script"}],
+      t_sax(lists:nth(3, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},
+       {script,<<"   foo(\"<\\/script>\"); ">>},
+       {end_tag,"script"}],
+      t_sax(lists:nth(4, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},{end_tag,"script"}],
+      t_sax(lists:nth(5, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},
+       {script,<<" foo('< /script>');">>},
+       {end_tag,"script"}],
+      t_sax(lists:nth(6, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},{end_tag,"script"}],
+      t_sax(lists:nth(7, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},
+       {script,<<" foo(\"</ script>\");">>},
+       {end_tag,"script"}],
+      t_sax(lists:nth(8, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},{end_tag,"script"}],
+      t_sax(lists:nth(9, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},
+       {script,<<" foo(\"">>},
+       {end_tag,"script"}],
+      t_sax(lists:nth(10, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},
+       {script,<<" foo(\"">>},
+       {end_tag,"script"}],
+      t_sax(lists:nth(11, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},
+       {end_tag,"script"}],
+      t_sax(lists:nth(12, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},
+       {script,<<" foo(\"">>},
+       {end_tag,"script"}],
+      t_sax(lists:nth(13, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},
+       {script,<<" foo <script> foo(\"">>},
+       {end_tag,"script"}],
+      t_sax(lists:nth(14, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},
+       {script,<<" foo(\"<\\\\/script>\")">>},
+       {end_tag,"script"}],
+      t_sax(lists:nth(15, Lines)))].
+
+t_basic_test_() ->
   {ok, X} = file:read_file("../test/basic.html"),
   Lines = re:split(X, "\n"),
 
@@ -68,8 +137,10 @@ t_test_() ->
       [{tag,"script",[]},
        {script,<<"visual+basic = \"rules<\\/script>\";">>},
        {end_tag,"script"}],
-      t_sax(lists:nth(9, Lines)))
-  ].
+      t_sax(lists:nth(9, Lines))),
+   ?_assertEqual(
+      [{text,"<\\"}],
+      t_sax(lists:nth(10, Lines)))].
 
 t_sax(Str) ->
   trane:sax(Str,fun(T,A)-> A++[T] end,[]).
