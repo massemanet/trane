@@ -1,12 +1,11 @@
 {application, trane,
- [
-  {description, ""},
+ [{description, "SAX parser for broken HTML"},
   {vsn, "1.0.1"},
   {registered, []},
-  {applications, [
-                  kernel,
-                  stdlib
-                 ]},
-  {mod, { trane_app, []}},
-  {env, []}
- ]}.
+  {applications,
+   [kernel,
+    stdlib,
+    inets]},
+  {maintainers, ["Mats Cronqvist"]},
+  {licenses, ["MIT"]},
+  {links, [{"Github", "https://github.com/massemanet/trane"}]}]}.
