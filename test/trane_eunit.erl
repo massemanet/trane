@@ -11,31 +11,44 @@ t_style_test_() ->
   Lines = re:split(X, "\n"),
 
   [?_assertEqual(
-      [{comment,<<" renders: \"0 1 2 3 4\" ">>}],
+      [{'?',"xml version=\"1.0\" encoding=\"utf-8\""}],
       t_sax(lists:nth(1, Lines))),
    ?_assertEqual(
-      [],
+      [{comment,<<" renders: \"0 1 2 3 4\" ">>}],
       t_sax(lists:nth(2, Lines))),
+   ?_assertEqual(
+      [],
+      t_sax(lists:nth(3, Lines))),
    ?_assertEqual(
       [{text,<<"0">>},
        {tag,"style",[{"class","b"}]},
        {style,<<"<></>">>},
        {end_tag,"style"},
        {text,<<" 1">>}],
-      t_sax(lists:nth(3, Lines))),
+      t_sax(lists:nth(4, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},
        {script,<<"   foo(\"<\\/script>\"); ">>},
        {end_tag,"script"},
        {text,<<"2">>}],
-      t_sax(lists:nth(4, Lines))),
+      t_sax(lists:nth(5, Lines))),
    ?_assertEqual(
       [{text,<<"3 ">>},
        {tag,"style",[{"type","text/css"}]},
        {style,<<"img#wpstats{display:none}">>},
        {end_tag,"style"},
        {text,<<"4">>}],
-      t_sax(lists:nth(5, Lines)))].
+      t_sax(lists:nth(6, Lines))),
+   ?_assertEqual(
+      [{tag,"style",[]},
+       {style,<<"">>},
+       {end_tag,"style"}],
+      t_sax(lists:nth(7, Lines))),
+   ?_assertEqual(
+      [{tag,"style",[]},
+       {end_tag,"style"},
+       {text,<<"style>">>}],
+      t_sax(lists:nth(8, Lines)))].
 
 t_script_test_() ->
   {ok, X} = file:read_file("../test/script-tag.html"),
@@ -193,7 +206,15 @@ t_basic_test_() ->
        {tag,"a",[]},
        {end_tag,"a"},
        {text,<<"tail">>}],
-      t_sax(lists:nth(11, Lines)))].
+      t_sax(lists:nth(11, Lines))),
+   ?_assertEqual(
+      [{tag,"foo",[{"bla",[]},{"baz",[]}]},
+       {end_tag,"foo"}],
+      t_sax(lists:nth(12, Lines))),
+   ?_assertEqual(
+      [{tag,"foo",[{"bla","baz"}]},
+       {end_tag,"foo"}],
+      t_sax(lists:nth(13, Lines)))].
 
 t_sax(Str) ->
   trane:sax(Str,fun(T,A)-> A++[T] end,[]).

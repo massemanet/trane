@@ -62,7 +62,6 @@ eof(#state{acc=Acc}) -> Acc.
 maybe_emit(Token, State) ->
   case Token of
     {text, <<>>}       -> State;
-    eof                -> State;
     {sc, Tag, Attrs}   -> emit({end_tag, Tag}, emit({tag, Tag, Attrs}, State));
     {open, Tag, Attrs} -> emit({tag, Tag, Attrs}, push(Tag, State));
     {close, Tag}       -> emit_end_tag(Tag, State);
@@ -196,10 +195,7 @@ tz({dqval, V, A, T, As}, ?d(X, Str), R)  -> tz({dqval, V++[X], A, T, As}, Str, R
 %% in unquoted value context
 tz({uqval, V, A, T, As}, ?D(X, S), R) when ?ev(X) -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
 tz({uqval, V, A, T, As}, ?M("/>", S), R)          -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
-tz({uqval, V, A, T, As}, ?d(X, Str), R)           -> tz({uqval, V++[X], A, T, As}, Str, R);
-
-%% end of string
-tz(X, <<"">>, _) -> {X, eof}.
+tz({uqval, V, A, T, As}, ?d(X, Str), R)           -> tz({uqval, V++[X], A, T, As}, Str, R).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% fast forward
