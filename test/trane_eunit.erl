@@ -6,6 +6,37 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+t_style_test_() ->
+  {ok, X} = file:read_file("../test/style-tag.html"),
+  Lines = re:split(X, "\n"),
+
+  [?_assertEqual(
+      [{comment,<<" renders: \"0 1 2 3 4\" ">>}],
+      t_sax(lists:nth(1, Lines))),
+   ?_assertEqual(
+      [],
+      t_sax(lists:nth(2, Lines))),
+   ?_assertEqual(
+      [{text,<<"0">>},
+       {tag,"style",[{"class","b"}]},
+       {style,<<"<></>">>},
+       {end_tag,"style"},
+       {text,<<" 1">>}],
+      t_sax(lists:nth(3, Lines))),
+   ?_assertEqual(
+      [{tag,"script",[]},
+       {script,<<"   foo(\"<\\/script>\"); ">>},
+       {end_tag,"script"},
+       {text,<<"2">>}],
+      t_sax(lists:nth(4, Lines))),
+   ?_assertEqual(
+      [{text,<<"3 ">>},
+       {tag,"style",[{"type","text/css"}]},
+       {style,<<"img#wpstats{display:none}">>},
+       {end_tag,"style"},
+       {text,<<"4">>}],
+      t_sax(lists:nth(5, Lines)))].
+
 t_script_test_() ->
   {ok, X} = file:read_file("../test/script-tag.html"),
   Lines = re:split(X, "\n"),
@@ -29,7 +60,9 @@ t_script_test_() ->
        {text,<<"1">>}],
       t_sax(lists:nth(4, Lines))),
    ?_assertEqual(
-      [{tag,"script",[]},{end_tag,"script"}],
+      [{tag,"script",[]},
+       {end_tag,"script"},
+       {text,<<" foo('</ script>');< /SCRIPT>1.5">>}],
       t_sax(lists:nth(5, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},
@@ -38,7 +71,9 @@ t_script_test_() ->
        {text,<<"2">>}],
       t_sax(lists:nth(6, Lines))),
    ?_assertEqual(
-      [{tag,"script",[]},{end_tag,"script"}],
+      [{tag,"script",[]},
+       {end_tag,"script"},
+       {text,<<" foo(\"</ script>\");</scrip>2.5">>}],
       t_sax(lists:nth(7, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},
@@ -47,7 +82,9 @@ t_script_test_() ->
        {text,<<"3">>}],
       t_sax(lists:nth(8, Lines))),
    ?_assertEqual(
-      [{tag,"script",[]},{end_tag,"script"}],
+      [{tag,"script",[]},
+       {end_tag,"script"},
+       {text,<<" foo(\"</ script>\");</ script>3.5">>}],
       t_sax(lists:nth(9, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},
@@ -63,7 +100,8 @@ t_script_test_() ->
       t_sax(lists:nth(11, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},
-       {end_tag,"script"}],
+       {end_tag,"script"},
+       {text,<<" foo(\"</ script>\");</ script>5.5">>}],
       t_sax(lists:nth(12, Lines))),
    ?_assertEqual(
       [{tag,"script",[]},

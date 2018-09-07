@@ -10,7 +10,7 @@
 
 -module('trane').
 -author('mats cronqvist').
--export([sax/3, wget_parse/1, wget_print/1, wget_sax/3]).
+-export([sax/1, sax/3, wget_parse/1, wget_print/1, wget_sax/3]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% API
@@ -20,6 +20,9 @@ wget_parse(Url) ->
 
 wget_sax(Url, Fun, A0) ->
   sax(wget(Url), Fun, A0).
+
+sax(Str) ->
+  lists:reverse(parse(Str, fun(A, B) -> [A|B] end, [])).
 
 sax(Str, Fun, Acc) ->
   parse(Str, Fun, Acc).
@@ -37,35 +40,38 @@ parse(Str, Fun, Acc) when ?is_str(Str) ->
   parse(list_to_binary(Str), Fun, Acc);
 parse(Str, Fun, Acc) when is_binary(Str) ->
   R = mk_regexps(),
-  parse_loop(#state{fn=Fun, acc=Acc, res=R}, tokenize({text, Str, []}, R)).
+  eof(parse_loop(#state{fn=Fun, acc=Acc, res=R}, tokenize(text, Str, R))).
 
-parse_loop(State, [{Token, Trailing}]) ->
-  case Token of
+parse_loop(State0 = #state{stack=Stack}, {[Token], Tail}) ->
+  case Tail of
     eof ->
-      NS = maybe_emit(Token, State),
-      NNS = unroll(NS#state.stack, NS#state{stack=[]}),
-      eof(maybe_emit(Trailing, NNS));
+      maybe_emit(Token, unroll(Stack, State0#state{stack=[]}));
     _   ->
-      parse_loop(maybe_emit(Token, State), tokenize(Trailing, State#state.res))
+      State = maybe_emit(Token, State0),
+      parse_loop(State, tokenize(next_type(Token), Tail, State#state.res))
   end;
-parse_loop(State, [Token|Ts]) ->
-  parse_loop(maybe_emit(Token, State), Ts).
+parse_loop(State, {[Token|Tokens], Tail}) ->
+  parse_loop(maybe_emit(Token, State), {Tokens, Tail}).
+
+next_type({open, "script", _}) -> script;
+next_type({open, "style", _}) -> style;
+next_type(_) -> text.
 
 eof(#state{acc=Acc}) -> Acc.
 
 maybe_emit(Token, State) ->
   case Token of
-    {sc, Tag, Attrs}  -> emit({end_tag, Tag}, emit({tag, Tag, Attrs}, State));
-    {open, Tag, Attrs}-> emit({tag, Tag, Attrs}, push(Tag, State));
-    {close, Tag}      -> emit_end_tag(Tag, State);
-    {text, <<>>}      -> State;
-    eof               -> State;
-    {'?', DT}         -> emit({'?', DT}, State);
-    {comment, Comment}-> emit({comment, Comment}, State);
-    {'!', DT}         -> emit({'!', DT}, State);
-    {script, Script}  -> emit({script, Script}, State);
-    {style, Style}    -> emit({style, Style}, State);
-    {text, Text}      -> emit({text, Text}, State)
+    {text, <<>>}       -> State;
+    eof                -> State;
+    {sc, Tag, Attrs}   -> emit({end_tag, Tag}, emit({tag, Tag, Attrs}, State));
+    {open, Tag, Attrs} -> emit({tag, Tag, Attrs}, push(Tag, State));
+    {close, Tag}       -> emit_end_tag(Tag, State);
+    {comment, Comment} -> emit({comment, Comment}, State);
+    {'?', DT}          -> emit({'?', DT}, State);
+    {'!', DT}          -> emit({'!', DT}, State);
+    {script, Script}   -> emit({script, Script}, State);
+    {style, Style}     -> emit({style, Style}, State);
+    {text, Text}       -> emit({text, Text}, State)
   end.
 
 emit_end_tag(Tag, State) ->
@@ -112,85 +118,88 @@ maybe_unroll(Tag, State = #state{stack=Stack}) ->
 -define(sq(X), X==$').
 -define(ev(X), ?ws(X);X==$>;X==$=).
 
-tokenize({TZ, Str}, R) ->
-  tokenize(tz(TZ, Str, R), R);
-tokenize({text, Str, Token}, R) ->
+tokenize(text, Str, R) ->
   case ff(text, Str, R) of
-    {{tag, ""}, T, {text, Txt}} ->
+    {{text, Str}, eof} ->
+      {[{text, Str}], eof};
+    {{text, Text}, Tail} ->
       %% we've found a '<'. try to treat it as a tag, if that fails, s/</&lt;/
-      try lists:flatten([Token, {text, Txt}]++tokenize({{tag, ""}, T}, R))
-      catch _:_ -> tokenize({text, <<Txt/binary, "&lt;", T/binary>>, Token}, R)
-      end;
-    {{text, Str}, "", eof} ->
-      lists:flatten([Token, {eof, {text, Str}}])
+      try
+        {Token, TailTail} = tz({tag, ""}, Tail, R),
+        {[{text, Text}, Token], TailTail}
+      catch
+        _:_ -> tokenize(text, <<Text/binary, "&lt;", Tail/binary>>, R)
+      end
   end;
-tokenize({TZ, Str, Token}, _) ->
-  [{Token, {TZ, Str}}].
+tokenize(script, Str, R) ->
+  case ff(script, Str, R) of
+    {{script, Text}, eof} -> {[{text, Text}], eof};
+    {Token, Tail} -> {[Token, {close, "script"}], Tail}
+  end;
+tokenize(style, Str, R) ->
+  case ff(style, Str, R) of
+    {{style, Text}, eof} -> {[{text, Text}], eof};
+    {Token, Tail} -> {[Token, {close, "style"}], Tail}
+  end.
 
-%% we found a '<', now in tag context
-tz({tag, ""}, ?m("!--", Str), R)         -> ff(comment, Str, R);
-tz({tag, ""}, ?m("!", Str), _)           -> {{'!', ""}, ws(Str)};
-tz({tag, ""}, ?m("?", Str), _)           -> {{que, ""}, ws(Str)};
-tz({tag, ""}, ?m("/", Str), _)           -> {{end_tag, ""}, ws(Str)};
-tz({tag, Tag}, ?m("/>", Str), _)         -> {text, Str, {sc, Tag, []}};
-tz({tag, Tag}, ?D(X, S), _) when ?ev(X)   -> {{attr, "", {Tag, []}}, ws(S)};
-tz({tag, Tag}, ?d(X, Str), _) when ?ok(X) -> {{tag, Tag++[X]}, Str};
+
+%% we have found a '<', now in tag context
+tz({tag, ""}, ?m("!--", Str), R)          -> ff(comment, Str, R);
+tz({tag, ""}, ?m("!", Str), R)            -> tz({'!', ""}, ws(Str), R);
+tz({tag, ""}, ?m("?", Str), R)            -> tz({'?', ""}, ws(Str), R);
+tz({tag, ""}, ?m("/", Str), R)            -> tz({end_tag, ""}, ws(Str), R);
+tz({tag, Tag}, ?m("/>", Str), _)          -> {{sc, Tag, []}, Str};
+tz({tag, Tag}, ?D(X, S), R) when ?ev(X)   -> tz({attr, "", Tag, []}, ws(S), R);
+tz({tag, Tag}, ?d(X, Str), R) when ?ok(X) -> tz({tag, Tag++[X]}, Str, R);
 
 %% we've found '<!'
-tz({'!', DT}, ?m(">", Str), _) -> {text, Str, {'!', dc(DT)}};
-tz({'!', DT}, ?d(X, Str), _)   -> {{'!', DT++[X]}, Str};
+tz({'!', DT}, ?m(">", Str), _) -> {{'!', dc(DT)}, Str};
+tz({'!', DT}, ?d(X, Str), R)   -> tz({'!', DT++[X]}, Str, R);
 
 %% we've found '<?'
-tz({'?', DT}, ?m("?>", Str), _) -> {text, Str, {'?', dc(DT)}};
-tz({'?', DT}, ?d(X, Str), _)    -> {{'?', DT++[X]}, Str};
-
-%% we were in 'tag' and found a '>'
-tz({etag, Tag, Attrs}, ?m("/>", Str), _)     -> {text, Str, {sc, Tag, Attrs}};
-tz({etag, "script", Attrs}, ?m(">", Str), _) -> {script, Str, {open, "script", Attrs}};
-tz({etag, "style", Attrs}, ?m(">", Str), _)  -> {style, Str, {open, "style", Attrs}};
-tz({etag, Tag, Attrs}, ?m(">", Str), _)      -> {text, Str, {open, Tag, Attrs}};
+tz({'?', DT}, ?m("?>", Str), _) -> {{'?', dc(DT)}, Str};
+tz({'?', DT}, ?d(X, Str), R)    -> tz({'?', DT++[X]}, Str, R);
 
 %% we found '</', in end_tag context
-tz({end_tag, Tag}, ?D(X, S), _) when ?ev(X) -> {{end_tag, Tag, '>'}, ws(S)};
-tz({end_tag, Tag, '>'}, ?m(">", Str), _)   -> {text, Str, {close, dc(Tag)}};
-tz({end_tag, Tag}, ?d(X, Str), _)          -> {{end_tag, Tag++[X]}, Str};
+tz({end_tag, Tag, '>'}, ?m(">", Str), _)    -> {{close, dc(Tag)}, Str};
+tz({end_tag, Tag}, ?D(X, S), R) when ?ev(X) -> tz({end_tag, Tag, '>'}, ws(S), R);
+tz({end_tag, Tag}, ?d(X, Str), R)           -> tz({end_tag, Tag++[X]}, Str, R);
 
 %% in attribute context
-tz({attr, "", {Tag, As}}, ?D(X, S), _) when ?ev(X) -> {{etag, dc(Tag), As}, S};
-tz({attr, "", {Tag, As}}, ?M("/>", S), _)         -> {{etag, dc(Tag), As}, S};
-tz({attr, A, {T, As}}, ?D(X, S), _) when ?ev(X)    -> {{eatt, {dc(A), T, As}}, ws(S)};
-tz({attr, A, {T, As}}, ?M("/>", S), _)            -> {{eatt, {dc(A), T, As}}, ws(S)};
-tz({attr, A, TAs}, ?d(X, Str), _) when ?ok(X)      -> {{attr, A++[X], TAs}, Str};
+tz({attr, "", T, As}, ?D(X, S), R) when ?ev(X) -> tz({etag, dc(T), As}, S, R);
+tz({attr, "", T, As}, ?M("/>", S), R)          -> tz({etag, dc(T), As}, S, R);
+tz({attr, A, T, As}, ?D(X, S), R) when ?ev(X)  -> tz({eatt, dc(A), T, As}, ws(S), R);
+tz({attr, A, T, As}, ?M("/>", S), R)           -> tz({eatt, dc(A), T, As}, ws(S), R);
+tz({attr, A, T, As}, ?d(X, S), R) when ?ok(X)  -> tz({attr, A++[X], T, As}, S, R);
+
+%% we were in 'tag' and there should be a '>' here
+tz({etag, Tag, Attrs}, ?m("/>", Str), _) -> {{sc, Tag, Attrs}, Str};
+tz({etag, Tag, Attrs}, ?m(">", Str), _)  -> {{open, Tag, Attrs}, Str};
 
 %% was in 'attribute' context, found end of attribute
-tz({eatt, ATAs}, ?m("=", Str), _) -> {{val, ATAs}, ws(Str)};
-tz({eatt, {A, T, As}}, S, _)      -> {{attr, "", {T, As++[{A, ""}]}}, ws(S)};
+tz({eatt, A, T, As}, ?m("=", Str), R) -> tz({val, A, T, As}, ws(Str), R);
+tz({eatt, A, T, As}, S, R)            -> tz({attr, "", T, As++[{A, ""}]}, ws(S), R);
 
-%% found an attribute that ahs a value
-tz({val, ATAs}, ?m("'", Str), _)  -> {{sqval, "", ATAs}, Str}; %singlequoted
-tz({val, ATAs}, ?m("\"", Str), _) -> {{dqval, "", ATAs}, Str}; %doublequoted
-tz({val, ATAs}, Str, _)           -> {{uqval, "", ATAs}, Str}; %unquoted
+%% found an attribute that has a value
+tz({val, A, T, As}, ?m("'", S), R)  -> tz({sqval, "", A, T, As}, S, R); %singlequoted
+tz({val, A, T, As}, ?m("\"", S), R) -> tz({dqval, "", A, T, As}, S, R); %doublequoted
+tz({val, A, T, As}, S, R)           -> tz({uqval, "", A, T, As}, S, R); %unquoted
 
 %% in single quoted value context
-tz({sqval, V, {A, T, As}}, ?m("'", S), _) -> {{attr, "", {T, As++[{A, V}]}}, ws(S)};
-tz({sqval, V, ATAs}, ?d(X, Str), _)       -> {{sqval, V++[X], ATAs}, Str};
+tz({sqval, V, A, T, As}, ?m("'", S), R) -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
+tz({sqval, V, A, T, As}, ?d(X, Str), R) -> tz({sqval, V++[X], A, T, As}, Str, R);
 
 %% in double quoted value context
-tz({dqval, V, {A, T, As}}, ?m("\"", S), _) -> {{attr, "", {T, As++[{A, V}]}}, ws(S)};
-tz({dqval, V, ATAs}, ?d(X, Str), _)        -> {{dqval, V++[X], ATAs}, Str};
+tz({dqval, V, A, T, As}, ?m("\"", S), R) -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
+tz({dqval, V, A, T, As}, ?d(X, Str), R)  -> tz({dqval, V++[X], A, T, As}, Str, R);
 
 %% in unquoted value context
-tz({uqval, V, {A, T, As}}, ?D(X, S), _) when ?ev(X) -> {{attr, "", {T, As++[{A, V}]}}, ws(S)};
-tz({uqval, V, {A, T, As}}, ?M("/>", S), _)          -> {{attr, "", {T, As++[{A, V}]}}, ws(S)};
-tz({uqval, V, ATAs}, ?d(X, Str), _)                 -> {{uqval, V++[X], ATAs}, Str};
-
-%% fast-forward past non-html stuff
-tz(script, Str, R) -> ff(script, Str, R);
-tz(style, Str, R)  -> ff(style, Str, R);
-tz(text, Str, R)   -> ff(text, Str, R);
+tz({uqval, V, A, T, As}, ?D(X, S), R) when ?ev(X) -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
+tz({uqval, V, A, T, As}, ?M("/>", S), R)          -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
+tz({uqval, V, A, T, As}, ?d(X, Str), R)           -> tz({uqval, V++[X], A, T, As}, Str, R);
 
 %% end of string
-tz(X, "", _) -> {X, "", eof}.
+tz(X, <<"">>, _) -> {X, eof}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% fast forward
@@ -213,14 +222,14 @@ mk_regexps() ->
 ff(What, String, R) ->
   case re:split(String, R(What), [{parts, 2}]) of
     [Scr, Str] -> mangle(What, Scr, Str);
-    _ -> {{text, String}, "", eof}
+    _ -> {{What, String}, eof}
   end.
 
 %% the 'tz' return values
-mangle(text, Scr, Str)    -> {{tag, ""}, ws(Str), {text, Scr}};
-mangle(script, Scr, Str)  -> {{tag, ""}, <<"/script>", Str/binary>>, {script, Scr}};
-mangle(style, Scr, Str)   -> {{tag, ""}, <<"/style>", Str/binary>>, {style, Scr}};
-mangle(comment, Scr, Str) -> {text, Str, {comment, Scr}}.
+mangle(text, Scr, Str)    -> {{text, Scr}, ws(Str)};
+mangle(script, Scr, Str)  -> {{script, Scr}, Str};
+mangle(style, Scr, Str)   -> {{style, Scr}, Str};
+mangle(comment, Scr, Str) -> {{comment, Scr}, Str}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% utils
