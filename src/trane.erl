@@ -40,7 +40,9 @@ parse(Str, Fun, Acc) when ?is_str(Str) ->
   parse(list_to_binary(Str), Fun, Acc);
 parse(Str, Fun, Acc) when is_binary(Str) ->
   R = mk_regexps(),
-  eof(parse_loop(#state{fn=Fun, acc=Acc, res=R}, tokenize(text, Str, R))).
+  eof(parse_loop(#state{fn=Fun, acc=Acc, res=R}, tokenize(split(Str)))).
+
+split(Str) -> re:split(Str, "<").
 
 parse_loop(State0 = #state{stack=Stack}, {[Token], Tail}) ->
   case Tail of
@@ -48,14 +50,10 @@ parse_loop(State0 = #state{stack=Stack}, {[Token], Tail}) ->
       maybe_emit(Token, unroll(Stack, State0#state{stack=[]}));
     _   ->
       State = maybe_emit(Token, State0),
-      parse_loop(State, tokenize(next_type(Token), Tail, State#state.res))
+      parse_loop(State, tokenize(Tail, State#state.res))
   end;
 parse_loop(State, {[Token|Tokens], Tail}) ->
   parse_loop(maybe_emit(Token, State), {Tokens, Tail}).
-
-next_type({open, "script", _}) -> script;
-next_type({open, "style", _}) -> style;
-next_type(_) -> text.
 
 eof(#state{acc=Acc}) -> Acc.
 
@@ -104,6 +102,39 @@ maybe_unroll(Tag, State = #state{stack=Stack}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% tokenizer
 
+%% tokenize(text, Str, R) ->
+%%   case ff(text, Str, R) of
+%%     {{text, Str}, eof} ->
+%%       {[{text, Str}], eof};
+%%     {{text, Text}, Tail} ->
+%%       %% we've found a '<'. try to treat it as a tag, if that fails, s/</&lt;/
+%%       try
+%%         {Token, TailTail} = tz({tag, ""}, Tail, R),
+%%         {[{text, Text}, Token], TailTail}
+%%       catch
+%%         _:_ -> tokenize(text, <<Text/binary, "&lt;", Tail/binary>>, R)
+%%       end
+%%   end;
+%% tokenize(script, Str, R) ->
+%%   case ff(script, Str, R) of
+%%     {{script, Text}, eof} -> {[{text, Text}], eof};
+%%     {Token, Tail} -> {[Token, {close, "script"}], Tail}
+%%   end;
+%% tokenize(style, Str, R) ->
+%%   case ff(style, Str, R) of
+%%     {{style, Text}, eof} -> {[{text, Text}], eof};
+%%     {Token, Tail} -> {[Token, {close, "style"}], Tail}
+%%   end.
+
+tokenize([Text|Tail]) -> {[{text, Text}], Tail}.
+
+tokenize([Seg|Tail], R) ->
+  try tz({tag, ""}, Seg, R) of
+      comment -> ff(comment, Seg, Tail, R);
+      
+  end.
+
+%% `tz' tokenizes tags
 %% operators
 -define(m(X, B), <<X, B/binary>>).               % consume - match
 -define(d(X, B), <<X:8/integer, B/binary>>).     % consume - decompose
@@ -117,37 +148,16 @@ maybe_unroll(Tag, State = #state{stack=Stack}) ->
 -define(sq(X), X==$').
 -define(ev(X), ?ws(X);X==$>;X==$=).
 
-tokenize(text, Str, R) ->
-  case ff(text, Str, R) of
-    {{text, Str}, eof} ->
-      {[{text, Str}], eof};
-    {{text, Text}, Tail} ->
-      %% we've found a '<'. try to treat it as a tag, if that fails, s/</&lt;/
-      try
-        {Token, TailTail} = tz({tag, ""}, Tail, R),
-        {[{text, Text}, Token], TailTail}
-      catch
-        _:_ -> tokenize(text, <<Text/binary, "&lt;", Tail/binary>>, R)
-      end
-  end;
-tokenize(script, Str, R) ->
-  case ff(script, Str, R) of
-    {{script, Text}, eof} -> {[{text, Text}], eof};
-    {Token, Tail} -> {[Token, {close, "script"}], Tail}
-  end;
-tokenize(style, Str, R) ->
-  case ff(style, Str, R) of
-    {{style, Text}, eof} -> {[{text, Text}], eof};
-    {Token, Tail} -> {[Token, {close, "style"}], Tail}
-  end.
+re(tag) ->
+  "<\s*[a-zA-Z0-9_]+(\s+([a-zA-Z0-9_]+)\s*(=\s*((\"([^\"]|\\\")*\")|('([^']|\\')*')|([a-zA-Z0-9_-]+)))?)*\s*\/?>".
 
 
 %% we have found a '<', now in tag context
-tz({tag, ""}, ?m("!--", Str), R)          -> ff(comment, Str, R);
-tz({tag, ""}, ?m("!", Str), R)            -> tz({'!', ""}, ws(Str), R);
-tz({tag, ""}, ?m("?", Str), R)            -> tz({'?', ""}, ws(Str), R);
+tz({tag, ""}, ?m("!--", _), _)          -> 'comment';
+tz({tag, ""}, ?m("!", Str), R)          -> '!';
+tz({tag, ""}, ?m("?", Str), R)          -> '?';
 tz({tag, ""}, ?m("/", Str), R)            -> tz({end_tag, ""}, ws(Str), R);
-tz({tag, Tag}, ?m("/>", Str), _)          -> {{sc, Tag, []}, Str};
+tz({tag, Tag}, ?m("/>", Str), _)          -> {{self_closed, Tag, []}, Str};
 tz({tag, Tag}, ?D(X, S), R) when ?ev(X)   -> tz({attr, "", Tag, []}, ws(S), R);
 tz({tag, Tag}, ?d(X, Str), R) when ?ok(X) -> tz({tag, Tag++[X]}, Str, R);
 
