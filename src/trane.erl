@@ -208,9 +208,9 @@ end_comment() -> "-->".
 
 %% pre-compiled versions of the regexps
 mk_regexps() ->
-  fun(text)   -> element(2, re:compile(end_text(), [caseless]));
-     (script) -> element(2, re:compile(end_script(), [caseless]));
-     (style)  -> element(2, re:compile(end_style(), [caseless]));
+  fun(text)   -> element(2, re:compile(end_text(),    [caseless]));
+     (script) -> element(2, re:compile(end_script(),  [caseless]));
+     (style)  -> element(2, re:compile(end_style(),   [caseless]));
      (comment)-> element(2, re:compile(end_comment(), [caseless]))
   end.
 
@@ -240,5 +240,8 @@ dc(Str) -> string:to_lower(Str).
 %% get page from web server
 wget(Url) ->
   inets:start(),
-  {ok, {_Rc, _Hdrs, Body}} = httpc:request(get, {Url, []}, [], []),
-  Body.
+  case httpc:request(get, {Url, []}, [], [{body_format, binary}]) of
+    {ok, {_Rc, _Hdrs, Body}} -> Body;
+    {error, Reason} -> error({error, {Url, Reason}})
+  end.
+
