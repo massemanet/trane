@@ -71,9 +71,10 @@ eof(#state{acc=Acc}) -> Acc.
 maybe_emit(Token, State) ->
   case Token of
     {text, <<>>}       -> State;
-    {sc, Tag, Attrs}   -> emit({end_tag, Tag}, emit({tag, Tag, Attrs}, State));
+    {oc, Tag, Attrs}   -> emit({end_tag, Tag}, emit({tag, Tag, Attrs}, State));
+    {co, Tag, Attrs}   -> emit({tag, Tag, Attrs}, emit({end_tag, Tag}, State));
     {open, Tag, Attrs} -> emit({tag, Tag, Attrs}, push(Tag, State));
-    {close, Tag}       -> emit_end_tag(Tag, State);
+    {close, Tag, _}    -> emit_end_tag(Tag, State);
     {comment, Comment} -> emit({comment, Comment}, State);
     {'?', DT}          -> emit({'?', DT}, State);
     {'!', DT}          -> emit({'!', DT}, State);
@@ -117,7 +118,7 @@ maybe_unroll(Tag, State = #state{stack=Stack}) ->
 -define(COMMENT,
         <<"<!--(.*)-->">>).  %% comment content (mandatory, maybe empty)
 -define(TAG_START,
-        <<"\\G<(/)?\\s*(",?UQ,")">>).  %% closing tag marker (opt), tag name
+        <<"<(/)?\\s*(",?UQ,")">>).  %% closing tag marker (opt), tag name
 -define(TAG_ATTR,
         <<"\\G\\s+(",?UQ,")",  %% attr name (mandatory)
           "(?:\\s*=\\s*(",?SQ,"|",?DQ,"|",?UQ,"))?">>). %% attr value (opt)
@@ -126,19 +127,19 @@ maybe_unroll(Tag, State = #state{stack=Stack}) ->
 
 mk_regexps() ->
   fun(tag_start) -> element(2, re:compile(?TAG_START, [caseless]));
-     (tag_attr) -> element(2, re:compile(?TAG_ATTR, [caseless]));
-     (tag_end) -> element(2, re:compile(?TAG_END, [caseless]))
+     (tag_attr)  -> element(2, re:compile(?TAG_ATTR, [caseless]));
+     (tag_end)   -> element(2, re:compile(?TAG_END, [caseless]))
   end.
 
-tokenize(State = #state{subject=Subj, res=REs}, Ix0) ->
-  case tag_begin(Subj, Ix0, REs) of
+tokenize(State, Ix0) ->
+  case tag_begin(State, Ix0) of
     nomatch ->
-      Tail = binary:part(Subj, Ix0, byte_size(Subj)-Ix0),
+      Tail = snip(State, Ix0),
       {[{text, Tail}], eof};
-    {match, Ix1, [Endp, Tag]} ->
-      case tag_end(Subj, Ix1, REs) of
-        {match, Ix2, [SelfClosep, Attrs]} ->
-          Pre = binary:part(Subj, Ix0, Ix1-Ix0),
+    {match, Ix1, Endp, Tag} ->
+      case tag_end(State, Ix1) of
+        {match, Ix2, Attrs, SelfClosep} ->
+          Pre = snip(State, Ix0, Ix1-Ix0),
           Token = {type(Endp, SelfClosep), Tag, Attrs},
           {[{text, Pre}, Token], Ix2};
         nomatch ->
@@ -146,33 +147,50 @@ tokenize(State = #state{subject=Subj, res=REs}, Ix0) ->
       end
   end.
 
-tag_begin(Subj, Ix, REs) ->
-  case re_run(Subj, Ix, REs(tag_start)) of
-    nomatch ->
-      nomatch;
-    {match, [Endp, {Beg, Len}]} ->
-      {match, Beg+Len, [endp(Endp), binary:part(Subj, Beg, Len)]}
+type(Endp, SelfClosep) ->
+  case {Endp, SelfClosep} of
+    {false, false} -> open; %% <a>   = open
+    {true, false} -> close; %% </a>  = close
+    {false, true} -> oc;    %% <a/>  = open, close
+    {true, true} -> co      %% </a/> = close, open
   end.
 
-tag_end(Subj, Ix, REs) ->
-  case re_run(Subj, Ix, REs(tag_end)) of
-    nomatch -> nomatch;
-    {match, []} -> {match, Ix+1, false, []};
-    {match, [_]} -> {match, Ix+2, true, []}
+tag_begin(State, Ix) ->
+  case re_run(State, tag_start, Ix) of
+    nomatch ->
+      nomatch;
+    {match, [Endp, {Pos, Len}]} ->
+      {match, Pos+Len, endp(Endp), snip(State, Pos, Len)}
   end.
 
 endp(Endp) -> {-1, 0} =:= Endp.
 
-type(Endp, SelfClosep) ->
-  case {Endp, SelfClosep} of
-    {false, false} -> open;          %% <a>
-    {true, false} -> close;          %% </a>
-    {false, true} -> self_close;     %% <a/>
-    {true, true} -> self_close_close %% </a/>
+tag_end(State, Ix0) ->
+  {Ix1, Attrs} = tag_attrs(State, {Ix0, []}),
+  case re_run(State, tag_end, Ix1) of
+    nomatch -> nomatch;
+    {match, []} -> {match, Ix1+1, Attrs, false};
+    {match, [_]} -> {match, Ix1+2, Attrs, true}
   end.
 
-re_run(Subj, Ix, RE) ->
-    re:run(Subj, RE, [{capture, all_but_first}, {offset, Ix}]).
+tag_attrs(State, {Ix, O}) ->
+  case re_run(State, tag_attr, Ix) of
+    nomatch ->
+      {Ix, lists:reverse(O)};
+    {match, [{Pos, Len}]} ->
+      tag_attrs(State, {Pos+Len, [{snip(State, Pos, Len), <<>>}|O]});
+    {match, [{P0, L0}, {P1, L1}]} ->
+      tag_attrs(State, {P1+L1, [{snip(State, P0, L0), snip(State, P1, L1)}|O]})
+  end.
+
+snip(State, Ix) ->
+  snip(State, Ix, byte_size(State#state.subject)-Ix).
+
+snip(#state{subject=Bin}, Pos, Len) ->
+  binary:part(Bin, Pos, Len).
+
+re_run(#state{subject=Subj, res=REs}, Tag, Ix) ->
+  re:run(Subj, REs(Tag), [{capture, all_but_first}, {offset, Ix}]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% tokenizer
