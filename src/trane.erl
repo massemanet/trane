@@ -31,24 +31,37 @@ wget_print(Url) ->
   io:fwrite("~s~n", [wget(Url)]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% get page from web server
+
+wget(Url) ->
+  inets:start(),
+  {ok, {_Rc, _Hdrs, Body}} = httpc:request(get, {Url, []}, [], []),
+  Body.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% parser
 
 -define(is_str(S), is_integer(hd(S))).
--record(state, {fn, acc, stack=[], res}).
+-record(state,
+        {fn,
+         acc,
+         subject,
+         stack=[],
+         res = mk_regexps()}).
 
 parse(Str, Fun, Acc) when ?is_str(Str) ->
   parse(list_to_binary(Str), Fun, Acc);
 parse(Str, Fun, Acc) when is_binary(Str) ->
-  REs = mk_regexps(),
-  eof(parse_loop(#state{fn=Fun, acc=Acc, res=REs}, tokenize(Str, REs))).
+  State = #state{fn=Fun, acc=Acc, subject=Str},
+  eof(parse_loop(State, tokenize(State, 0))).
 
-parse_loop(State0 = #state{stack=Stack}, {[Token], Tail}) ->
-  case Tail of
+parse_loop(State0 = #state{stack=Stack}, {[Token], Ix}) ->
+  case Ix of
     eof ->
       maybe_emit(Token, unroll(Stack, State0#state{stack=[]}));
     _   ->
       State = maybe_emit(Token, State0),
-      parse_loop(State, tokenize(Tail, State#state.res))
+      parse_loop(State, tokenize(State, Ix))
   end;
 parse_loop(State, {[Token|Tokens], Tail}) ->
   parse_loop(maybe_emit(Token, State), {Tokens, Tail}).
@@ -97,9 +110,73 @@ maybe_unroll(Tag, State = #state{stack=Stack}) ->
       throw(close_without_open)
   end.
 
+-define(DQ, "(?:\"(?:[^\\\"]|\\\")*\")"). %% double quoted string
+-define(SQ, "(?:'(?:[^\']|\')*')").       %% single quoted string
+-define(UQ, "(?:\\w+)").                  %% unquoted string
+
+-define(COMMENT,
+        <<"<!--(.*)-->">>).  %% comment content (mandatory, maybe empty)
+-define(TAG_START,
+        <<"\\G<(/)?\\s*(",?UQ,")">>).  %% closing tag marker (opt), tag name
+-define(TAG_ATTR,
+        <<"\\G\\s+(",?UQ,")",  %% attr name (mandatory)
+          "(?:\\s*=\\s*(",?SQ,"|",?DQ,"|",?UQ,"))?">>). %% attr value (opt)
+-define(TAG_END,
+        <<"\\G\s*(\/)?>">>).  %% self-closing tag marker (opt)
+
+mk_regexps() ->
+  fun(tag_start) -> element(2, re:compile(?TAG_START, [caseless]));
+     (tag_attr) -> element(2, re:compile(?TAG_ATTR, [caseless]));
+     (tag_end) -> element(2, re:compile(?TAG_END, [caseless]))
+  end.
+
+tokenize(State = #state{subject=Subj, res=REs}, Ix0) ->
+  case tag_begin(Subj, Ix0, REs) of
+    nomatch ->
+      Tail = binary:part(Subj, Ix0, byte_size(Subj)-Ix0),
+      {[{text, Tail}], eof};
+    {match, Ix1, [Endp, Tag]} ->
+      case tag_end(Subj, Ix1, REs) of
+        {match, Ix2, [SelfClosep, Attrs]} ->
+          Pre = binary:part(Subj, Ix0, Ix1-Ix0),
+          Token = {type(Endp, SelfClosep), Tag, Attrs},
+          {[{text, Pre}, Token], Ix2};
+        nomatch ->
+          tokenize(State, Ix0+1)
+      end
+  end.
+
+tag_begin(Subj, Ix, REs) ->
+  case re_run(Subj, Ix, REs(tag_start)) of
+    nomatch ->
+      nomatch;
+    {match, [Endp, {Beg, Len}]} ->
+      {match, Beg+Len, [endp(Endp), binary:part(Subj, Beg, Len)]}
+  end.
+
+tag_end(Subj, Ix, REs) ->
+  case re_run(Subj, Ix, REs(tag_end)) of
+    nomatch -> nomatch;
+    {match, []} -> {match, Ix+1, false, []};
+    {match, [_]} -> {match, Ix+2, true, []}
+  end.
+
+endp(Endp) -> {-1, 0} =:= Endp.
+
+type(Endp, SelfClosep) ->
+  case {Endp, SelfClosep} of
+    {false, false} -> open;          %% <a>
+    {true, false} -> close;          %% </a>
+    {false, true} -> self_close;     %% <a/>
+    {true, true} -> self_close_close %% </a/>
+  end.
+
+re_run(Subj, Ix, RE) ->
+    re:run(Subj, RE, [{capture, all_but_first}, {offset, Ix}]).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% tokenizer
-
+%%
 %% tokenize(text, Str, R) ->
 %%   case ff(text, Str, R) of
 %%     {{text, Str}, eof} ->
@@ -123,160 +200,115 @@ maybe_unroll(Tag, State = #state{stack=Stack}) ->
 %%     {{style, Text}, eof} -> {[{text, Text}], eof};
 %%     {Token, Tail} -> {[Token, {close, "style"}], Tail}
 %%   end.
-
--define(DQ, "(?:\"(?:[^\\\"]|\\\")*\")"). %% double quoted string
--define(SQ, "(?:'(?:[^\']|\')*')").       %% single quoted string
--define(UQ, "(?:\\w+)").                  %% unquoted string
-
--define(TAG_START,
-        <<"\\G<(/)?\\s*(",?UQ,")">>). %% closing tag marker (opt), tag name
--define(TAG_ATTR,
-        <<"\\G\\s+(",?UQ,")",  %% attr name (mandatory)
-          "(?:\\s*=\\s*(",?SQ,"|",?DQ,"|",?UQ,"))?">>). %% attr value (opt)
--define(TAG_END,
-        <<"\\G\s*(\/)?>">>). %% self-closing tag marker (opt)
-
-tokenize(Subj, Ix0, REs) ->
-  case localize_tag(Subj, Ix0, REs) of
-    nomatch ->
-      Tail = binary:part(Subj, Ix0, byte_size(Subj)-Ix0),
-      {[{text, Tail}], eof};
-    {match, Ix1, [Endp, Tag]} ->
-      case finalize_tag(Subj, Ix1, REs) of
-        {match, Ix2, [SelfClosep, Attrs]} ->
-          Pre = binary:part(Subj, Ix0, Ix1-Ix0),
-          Token = {type(Endp, SelfClosep), Tag, Attrs},
-          {[{text, Pre}, Token], Ix2};
-        nomatch ->
-          tokenize(Subj, Ix1, REs)
-      end
-  end.
-
-localize_tag(Subj, Ix, REs) ->
-  re:run(Subj, REs(tag_start), [{capture, all_but_first}, {offset, Ix}]).
-
-finalize_tag(Subj, Ix, REs) ->
-  case re:run(Subj, REs(tag_end), [{capture, all_but_first}, {offset, Ix}]) of
-    nomatch -> nomatch;
-    {match, []} -> {match, Ix+1, false, []};
-    {match, [{Ix, 1}]} -> {match, Ix+2, true, []}
-  end.
-
-
+%%
 %% `tz' tokenizes tags
 %% operators
--define(m(X, B), <<X, B/binary>>).               % consume - match
--define(d(X, B), <<X:8/integer, B/binary>>).     % consume - decompose
--define(M(X, B), <<X, _/binary>> = B).           % peek - match
--define(D(X, B), <<X:8/integer, _/binary>> = B). % peek - decompose
+%% -define(m(X, B), <<X, B/binary>>).               % consume - match
+%% -define(d(X, B), <<X:8/integer, B/binary>>).     % consume - decompose
+%% -define(M(X, B), <<X, _/binary>> = B).           % peek - match
+%% -define(D(X, B), <<X:8/integer, _/binary>> = B). % peek - decompose
 
-%% tests
--define(ok(X), $a=<X, X=<$z;$A=<X, X=<$Z;$0=<X, X=<$9;X==$_;X==$-;X==$:).
--define(ws(X), X==$\s;X==$\r;X==$\n;X==$\t).
--define(dq(X), X==$").
--define(sq(X), X==$').
--define(ev(X), ?ws(X);X==$>;X==$=).
+%% %% tests
+%% -define(ok(X), $a=<X, X=<$z;$A=<X, X=<$Z;$0=<X, X=<$9;X==$_;X==$-;X==$:).
+%% -define(ws(X), X==$\s;X==$\r;X==$\n;X==$\t).
+%% -define(dq(X), X==$").
+%% -define(sq(X), X==$').
+%% -define(ev(X), ?ws(X);X==$>;X==$=).
 
-%% we have found a '<', now in tag context
-tz({tag, ""}, ?m("!--", _), _)          -> 'comment';
-tz({tag, ""}, ?m("!", Str), R)          -> '!';
-tz({tag, ""}, ?m("?", Str), R)          -> '?';
-tz({tag, ""}, ?m("/", Str), R)            -> tz({end_tag, ""}, ws(Str), R);
-tz({tag, Tag}, ?m("/>", Str), _)          -> {{self_closed, Tag, []}, Str};
-tz({tag, Tag}, ?D(X, S), R) when ?ev(X)   -> tz({attr, "", Tag, []}, ws(S), R);
-tz({tag, Tag}, ?d(X, Str), R) when ?ok(X) -> tz({tag, Tag++[X]}, Str, R);
+%% %% we have found a '<', now in tag context
+%% tz({tag, ""}, ?m("!--", _), _)          -> 'comment';
+%% tz({tag, ""}, ?m("!", Str), R)          -> '!';
+%% tz({tag, ""}, ?m("?", Str), R)          -> '?';
+%% tz({tag, ""}, ?m("/", Str), R)            -> tz({end_tag, ""}, ws(Str), R);
+%% tz({tag, Tag}, ?m("/>", Str), _)          -> {{self_closed, Tag, []}, Str};
+%% tz({tag, Tag}, ?D(X, S), R) when ?ev(X)   -> tz({attr, "", Tag, []}, ws(S), R);
+%% tz({tag, Tag}, ?d(X, Str), R) when ?ok(X) -> tz({tag, Tag++[X]}, Str, R);
 
-%% we've found '<!'
-tz({'!', DT}, ?m(">", Str), _) -> {{'!', dc(DT)}, Str};
-tz({'!', DT}, ?d(X, Str), R)   -> tz({'!', DT++[X]}, Str, R);
+%% %% we've found '<!'
+%% tz({'!', DT}, ?m(">", Str), _) -> {{'!', dc(DT)}, Str};
+%% tz({'!', DT}, ?d(X, Str), R)   -> tz({'!', DT++[X]}, Str, R);
 
-%% we've found '<?'
-tz({'?', DT}, ?m("?>", Str), _) -> {{'?', dc(DT)}, Str};
-tz({'?', DT}, ?d(X, Str), R)    -> tz({'?', DT++[X]}, Str, R);
+%% %% we've found '<?'
+%% tz({'?', DT}, ?m("?>", Str), _) -> {{'?', dc(DT)}, Str};
+%% tz({'?', DT}, ?d(X, Str), R)    -> tz({'?', DT++[X]}, Str, R);
 
-%% we found '</', in end_tag context
-tz({end_tag, Tag, '>'}, ?m(">", Str), _)    -> {{close, dc(Tag)}, Str};
-tz({end_tag, Tag}, ?D(X, S), R) when ?ev(X) -> tz({end_tag, Tag, '>'}, ws(S), R);
-tz({end_tag, Tag}, ?d(X, Str), R)           -> tz({end_tag, Tag++[X]}, Str, R);
+%% %% we found '</', in end_tag context
+%% tz({end_tag, Tag, '>'}, ?m(">", Str), _)    -> {{close, dc(Tag)}, Str};
+%% tz({end_tag, Tag}, ?D(X, S), R) when ?ev(X) -> tz({end_tag, Tag, '>'}, ws(S), R);
+%% tz({end_tag, Tag}, ?d(X, Str), R)           -> tz({end_tag, Tag++[X]}, Str, R);
 
-%% in attribute context
-tz({attr, "", T, As}, ?D(X, S), R) when ?ev(X) -> tz({etag, dc(T), As}, S, R);
-tz({attr, "", T, As}, ?M("/>", S), R)          -> tz({etag, dc(T), As}, S, R);
-tz({attr, A, T, As}, ?D(X, S), R) when ?ev(X)  -> tz({eatt, dc(A), T, As}, ws(S), R);
-tz({attr, A, T, As}, ?M("/>", S), R)           -> tz({eatt, dc(A), T, As}, ws(S), R);
-tz({attr, A, T, As}, ?d(X, S), R) when ?ok(X)  -> tz({attr, A++[X], T, As}, S, R);
+%% %% in attribute context
+%% tz({attr, "", T, As}, ?D(X, S), R) when ?ev(X) -> tz({etag, dc(T), As}, S, R);
+%% tz({attr, "", T, As}, ?M("/>", S), R)          -> tz({etag, dc(T), As}, S, R);
+%% tz({attr, A, T, As}, ?D(X, S), R) when ?ev(X)  -> tz({eatt, dc(A), T, As}, ws(S), R);
+%% tz({attr, A, T, As}, ?M("/>", S), R)           -> tz({eatt, dc(A), T, As}, ws(S), R);
+%% tz({attr, A, T, As}, ?d(X, S), R) when ?ok(X)  -> tz({attr, A++[X], T, As}, S, R);
 
-%% we were in 'tag' and there should be a '>' here
-tz({etag, Tag, Attrs}, ?m("/>", Str), _) -> {{sc, Tag, Attrs}, Str};
-tz({etag, Tag, Attrs}, ?m(">", Str), _)  -> {{open, Tag, Attrs}, Str};
+%% %% we were in 'tag' and there should be a '>' here
+%% tz({etag, Tag, Attrs}, ?m("/>", Str), _) -> {{sc, Tag, Attrs}, Str};
+%% tz({etag, Tag, Attrs}, ?m(">", Str), _)  -> {{open, Tag, Attrs}, Str};
 
-%% was in 'attribute' context, found end of attribute
-tz({eatt, A, T, As}, ?m("=", Str), R) -> tz({val, A, T, As}, ws(Str), R);
-tz({eatt, A, T, As}, S, R)            -> tz({attr, "", T, As++[{A, ""}]}, ws(S), R);
+%% %% was in 'attribute' context, found end of attribute
+%% tz({eatt, A, T, As}, ?m("=", Str), R) -> tz({val, A, T, As}, ws(Str), R);
+%% tz({eatt, A, T, As}, S, R)            -> tz({attr, "", T, As++[{A, ""}]}, ws(S), R);
 
-%% found an attribute that has a value
-tz({val, A, T, As}, ?m("'", S), R)  -> tz({sqval, "", A, T, As}, S, R); %singlequoted
-tz({val, A, T, As}, ?m("\"", S), R) -> tz({dqval, "", A, T, As}, S, R); %doublequoted
-tz({val, A, T, As}, S, R)           -> tz({uqval, "", A, T, As}, S, R); %unquoted
+%% %% found an attribute that has a value
+%% tz({val, A, T, As}, ?m("'", S), R)  -> tz({sqval, "", A, T, As}, S, R); %singlequoted
+%% tz({val, A, T, As}, ?m("\"", S), R) -> tz({dqval, "", A, T, As}, S, R); %doublequoted
+%% tz({val, A, T, As}, S, R)           -> tz({uqval, "", A, T, As}, S, R); %unquoted
 
-%% in single quoted value context
-tz({sqval, V, A, T, As}, ?m("'", S), R) -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
-tz({sqval, V, A, T, As}, ?d(X, Str), R) -> tz({sqval, V++[X], A, T, As}, Str, R);
+%% %% in single quoted value context
+%% tz({sqval, V, A, T, As}, ?m("'", S), R) -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
+%% tz({sqval, V, A, T, As}, ?d(X, Str), R) -> tz({sqval, V++[X], A, T, As}, Str, R);
 
-%% in double quoted value context
-tz({dqval, V, A, T, As}, ?m("\"", S), R) -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
-tz({dqval, V, A, T, As}, ?d(X, Str), R)  -> tz({dqval, V++[X], A, T, As}, Str, R);
+%% %% in double quoted value context
+%% tz({dqval, V, A, T, As}, ?m("\"", S), R) -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
+%% tz({dqval, V, A, T, As}, ?d(X, Str), R)  -> tz({dqval, V++[X], A, T, As}, Str, R);
 
-%% in unquoted value context
-tz({uqval, V, A, T, As}, ?D(X, S), R) when ?ev(X) -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
-tz({uqval, V, A, T, As}, ?M("/>", S), R)          -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
-tz({uqval, V, A, T, As}, ?d(X, Str), R)           -> tz({uqval, V++[X], A, T, As}, Str, R).
+%% %% in unquoted value context
+%% tz({uqval, V, A, T, As}, ?D(X, S), R) when ?ev(X) -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
+%% tz({uqval, V, A, T, As}, ?M("/>", S), R)          -> tz({attr, "", T, As++[{A, V}]}, ws(S), R);
+%% tz({uqval, V, A, T, As}, ?d(X, Str), R)           -> tz({uqval, V++[X], A, T, As}, Str, R).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% fast forward
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% %% fast forward
 
-%% regexps
-end_text() -> "<".
-end_script() -> "</script\\s*>".
-end_style() -> "</style\\s*>".
-end_comment() -> "-->".
+%% %% regexps
+%% end_text() -> "<".
+%% end_script() -> "</script\\s*>".
+%% end_style() -> "</style\\s*>".
+%% end_comment() -> "-->".
 
-%% pre-compiled versions of the regexps
-mk_regexps() ->
-  fun(text)   -> element(2, re:compile(end_text(), [caseless]));
-     (script) -> element(2, re:compile(end_script(), [caseless]));
-     (style)  -> element(2, re:compile(end_style(), [caseless]));
-     (comment)-> element(2, re:compile(end_comment(), [caseless]));
-     (tag_start) -> element(2, re:compile(?TAG_START, [caseless]));
-     (tag_attr) -> element(2, re:compile(?TAG_ATTR, [caseless]));
-     (tag_end) -> element(2, re:compile(?TAG_END, [caseless]))
-  end.
+%% %% pre-compiled versions of the regexps
+%% mk_regexps() ->
+%%   fun(text)   -> element(2, re:compile(end_text(), [caseless]));
+%%      (script) -> element(2, re:compile(end_script(), [caseless]));
+%%      (style)  -> element(2, re:compile(end_style(), [caseless]));
+%%      (comment)-> element(2, re:compile(end_comment(), [caseless]));
+%%      (tag_start) -> element(2, re:compile(?TAG_START, [caseless]));
+%%      (tag_attr) -> element(2, re:compile(?TAG_ATTR, [caseless]));
+%%      (tag_end) -> element(2, re:compile(?TAG_END, [caseless]))
+%%   end.
 
-%% skip ahead until re matches. 'R' holds the pre compiled regexps
-ff(What, String, R) ->
-  case re:split(String, R(What), [{parts, 2}]) of
-    [Scr, Str] -> mangle(What, Scr, Str);
-    _ -> {{What, String}, eof}
-  end.
+%% %% skip ahead until re matches. 'R' holds the pre compiled regexps
+%% ff(What, String, R) ->
+%%   case re:split(String, R(What), [{parts, 2}]) of
+%%     [Scr, Str] -> mangle(What, Scr, Str);
+%%     _ -> {{What, String}, eof}
+%%   end.
 
-%% the 'tz' return values
-mangle(text, Scr, Str)    -> {{text, Scr}, ws(Str)};
-mangle(script, Scr, Str)  -> {{script, Scr}, Str};
-mangle(style, Scr, Str)   -> {{style, Scr}, Str};
-mangle(comment, Scr, Str) -> {{comment, Scr}, Str}.
+%% %% the 'tz' return values
+%% mangle(text, Scr, Str)    -> {{text, Scr}, ws(Str)};
+%% mangle(script, Scr, Str)  -> {{script, Scr}, Str};
+%% mangle(style, Scr, Str)   -> {{style, Scr}, Str};
+%% mangle(comment, Scr, Str) -> {{comment, Scr}, Str}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% utils
 
 %% trim whitespace from the left
-ws(?d(X, Str)) when ?ws(X) -> ws(Str);
-ws(Str) -> Str.
+%% ws(?d(X, Str)) when ?ws(X) -> ws(Str);
+%% ws(Str) -> Str.
 
 %% downcase
-dc(Str) -> string:to_lower(Str).
-
-%% get page from web server
-wget(Url) ->
-  inets:start(),
-  {ok, {_Rc, _Hdrs, Body}} = httpc:request(get, {Url, []}, [], []),
-  Body.
+%% dc(Str) -> string:to_lower(Str).
