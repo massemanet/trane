@@ -39,10 +39,8 @@ wget_print(Url) ->
 parse(Str, Fun, Acc) when ?is_str(Str) ->
   parse(list_to_binary(Str), Fun, Acc);
 parse(Str, Fun, Acc) when is_binary(Str) ->
-  R = mk_regexps(),
-  eof(parse_loop(#state{fn=Fun, acc=Acc, res=R}, tokenize(split(Str)))).
-
-split(Str) -> re:split(Str, "<").
+  REs = mk_regexps(),
+  eof(parse_loop(#state{fn=Fun, acc=Acc, res=REs}, tokenize(Str, REs))).
 
 parse_loop(State0 = #state{stack=Stack}, {[Token], Tail}) ->
   case Tail of
@@ -126,13 +124,44 @@ maybe_unroll(Tag, State = #state{stack=Stack}) ->
 %%     {Token, Tail} -> {[Token, {close, "style"}], Tail}
 %%   end.
 
-tokenize([Text|Tail]) -> {[{text, Text}], Tail}.
+-define(DQ, "(?:\"(?:[^\\\"]|\\\")*\")"). %% double quoted string
+-define(SQ, "(?:'(?:[^\']|\')*')").       %% single quoted string
+-define(UQ, "(?:\\w+)").                  %% unquoted string
 
-tokenize([Seg|Tail], R) ->
-  try tz({tag, ""}, Seg, R) of
-      comment -> ff(comment, Seg, Tail, R);
-      
+-define(TAG_START,
+        <<"\\G<(/)?\\s*(",?UQ,")">>). %% closing tag marker (opt), tag name
+-define(TAG_ATTR,
+        <<"\\G\\s+(",?UQ,")",  %% attr name (mandatory)
+          "(?:\\s*=\\s*(",?SQ,"|",?DQ,"|",?UQ,"))?">>). %% attr value (opt)
+-define(TAG_END,
+        <<"\\G\s*(\/)?>">>). %% self-closing tag marker (opt)
+
+tokenize(Subj, Ix0, REs) ->
+  case localize_tag(Subj, Ix0, REs) of
+    nomatch ->
+      Tail = binary:part(Subj, Ix0, byte_size(Subj)-Ix0),
+      {[{text, Tail}], eof};
+    {match, Ix1, [Endp, Tag]} ->
+      case finalize_tag(Subj, Ix1, REs) of
+        {match, Ix2, [SelfClosep, Attrs]} ->
+          Pre = binary:part(Subj, Ix0, Ix1-Ix0),
+          Token = {type(Endp, SelfClosep), Tag, Attrs},
+          {[{text, Pre}, Token], Ix2};
+        nomatch ->
+          tokenize(Subj, Ix1, REs)
+      end
   end.
+
+localize_tag(Subj, Ix, REs) ->
+  re:run(Subj, REs(tag_start), [{capture, all_but_first}, {offset, Ix}]).
+
+finalize_tag(Subj, Ix, REs) ->
+  case re:run(Subj, REs(tag_end), [{capture, all_but_first}, {offset, Ix}]) of
+    nomatch -> nomatch;
+    {match, []} -> {match, Ix+1, false, []};
+    {match, [{Ix, 1}]} -> {match, Ix+2, true, []}
+  end.
+
 
 %% `tz' tokenizes tags
 %% operators
@@ -147,10 +176,6 @@ tokenize([Seg|Tail], R) ->
 -define(dq(X), X==$").
 -define(sq(X), X==$').
 -define(ev(X), ?ws(X);X==$>;X==$=).
-
-re(tag) ->
-  "<\s*[a-zA-Z0-9_]+(\s+([a-zA-Z0-9_]+)\s*(=\s*((\"([^\"]|\\\")*\")|('([^']|\\')*')|([a-zA-Z0-9_-]+)))?)*\s*\/?>".
-
 
 %% we have found a '<', now in tag context
 tz({tag, ""}, ?m("!--", _), _)          -> 'comment';
@@ -221,7 +246,10 @@ mk_regexps() ->
   fun(text)   -> element(2, re:compile(end_text(), [caseless]));
      (script) -> element(2, re:compile(end_script(), [caseless]));
      (style)  -> element(2, re:compile(end_style(), [caseless]));
-     (comment)-> element(2, re:compile(end_comment(), [caseless]))
+     (comment)-> element(2, re:compile(end_comment(), [caseless]));
+     (tag_start) -> element(2, re:compile(?TAG_START, [caseless]));
+     (tag_attr) -> element(2, re:compile(?TAG_ATTR, [caseless]));
+     (tag_end) -> element(2, re:compile(?TAG_END, [caseless]))
   end.
 
 %% skip ahead until re matches. 'R' holds the pre compiled regexps
