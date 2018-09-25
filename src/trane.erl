@@ -136,10 +136,9 @@ tokenize(State, Ix0) ->
     nomatch ->
       Tail = snip(State, Ix0),
       {[{text, Tail}], eof};
-    {match, Ix1, Endp, Tag} ->
+    {match, Ix1, Endp, Pre, Tag} ->
       case tag_end(State, Ix1) of
         {match, Ix2, Attrs, SelfClosep} ->
-          Pre = snip(State, Ix0, Ix1-Ix0),
           Token = {type(Endp, SelfClosep), Tag, Attrs},
           {[{text, Pre}, Token], Ix2};
         nomatch ->
@@ -159,27 +158,29 @@ tag_begin(State, Ix) ->
   case re_run(State, tag_start, Ix) of
     nomatch ->
       nomatch;
-    {match, [Endp, {Pos, Len}]} ->
-      {match, Pos+Len, endp(Endp), snip(State, Pos, Len)}
+    {match, [{P0, _}, Endp, {Pos, Len}]} ->
+      Pre = snip(State, Ix, P0-Ix),    %% the snippet in front of the match
+      Match = snip(State, Pos, Len),   %% the match
+      {match, Pos+Len, endp(Endp), Pre, Match}
   end.
 
-endp(Endp) -> {-1, 0} =:= Endp.
+endp(Endp) -> {-1, 0} =/= Endp.
 
 tag_end(State, Ix0) ->
   {Ix1, Attrs} = tag_attrs(State, {Ix0, []}),
   case re_run(State, tag_end, Ix1) of
     nomatch -> nomatch;
-    {match, []} -> {match, Ix1+1, Attrs, false};
-    {match, [_]} -> {match, Ix1+2, Attrs, true}
+    {match, [_]} -> {match, Ix1+1, Attrs, false};
+    {match, [_, _]} -> {match, Ix1+2, Attrs, true}
   end.
 
 tag_attrs(State, {Ix, O}) ->
   case re_run(State, tag_attr, Ix) of
     nomatch ->
       {Ix, lists:reverse(O)};
-    {match, [{Pos, Len}]} ->
+    {match, [_, {Pos, Len}]} ->
       tag_attrs(State, {Pos+Len, [{snip(State, Pos, Len), <<>>}|O]});
-    {match, [{P0, L0}, {P1, L1}]} ->
+    {match, [_, {P0, L0}, {P1, L1}]} ->
       tag_attrs(State, {P1+L1, [{snip(State, P0, L0), snip(State, P1, L1)}|O]})
   end.
 
@@ -190,7 +191,7 @@ snip(#state{subject=Bin}, Pos, Len) ->
   binary:part(Bin, Pos, Len).
 
 re_run(#state{subject=Subj, res=REs}, Tag, Ix) ->
-  re:run(Subj, REs(Tag), [{capture, all_but_first}, {offset, Ix}]).
+  re:run(Subj, REs(Tag), [{offset, Ix}]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% tokenizer
