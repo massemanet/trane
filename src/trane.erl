@@ -35,8 +35,10 @@ wget_print(Url) ->
 
 wget(Url) ->
   inets:start(),
-  {ok, {_Rc, _Hdrs, Body}} = httpc:request(get, {Url, []}, [], []),
-  Body.
+  case httpc:request(get, {Url, []}, [], [{body_format, binary}]) of
+    {ok, {_Rc, _Hdrs, Body}} -> Body;
+    {error, R} -> exit({bad_request, {Url, R}})
+  end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% parser
@@ -83,9 +85,10 @@ maybe_emit(Token, State) ->
     {text, Text}       -> emit({text, Text}, State)
   end.
 
-emit_end_tag(Tag, State) ->
-  try emit({end_tag, Tag}, pop(Tag, maybe_unroll(Tag, State)))
-  catch close_without_open -> State
+emit_end_tag(Tag, State = #state{stack=Stack}) ->
+  case lists:splitwith(fun(T)-> T=/=Tag end, Stack) of
+    {Stack, []} -> State;    %% close tag without open tag; drop it
+    {H, T} -> emit({end_tag, Tag}, pop(Tag, unroll(H, State#state{stack=T})))
   end.
 
 emit(Token, State = #state{fn=Fun, acc=Acc}) ->
@@ -100,20 +103,9 @@ pop(Tag, State = #state{stack=[Tag|Stack]}) ->
 unroll(Stack, State) ->
   lists:foldl(fun(Item, S) -> emit({end_tag, Item}, S) end, State, Stack).
 
-maybe_unroll(Tag, State = #state{stack=Stack}) ->
-  case lists:member(Tag, Stack) of
-    true ->
-      %% close all open tags in this tags scope
-      {Hd, Tl} = lists:splitwith(fun(T)-> T=/=Tag end, Stack),
-      unroll(Hd, State#state{stack=Tl});
-    false->
-      %% close tag has no open tag; drop it
-      throw(close_without_open)
-  end.
-
--define(DQ, "(?:\"(?:[^\\\"]|\\\")*\")").  %% double quoted string
--define(SQ, "(?:'(?:[^\']|\')*')").        %% single quoted string
--define(UQ, "(?:[^>\\\"\'\\s/]|/(?!>))+"). %% unquoted string
+-define(DQ, "(?:\"(?:[^\"]|\\\\\")*\")").       %% double quoted string
+-define(SQ, "(?:'(?:[^\']|\\\\')*')").          %% single quoted string
+-define(UQ, "(?:[^>\\\\\"\\\\'\\s/]|/(?!>))+"). %% unquoted string
 
 -define(COMMENT,
         "<!--").            %% comment. closes with "-->"
@@ -124,16 +116,16 @@ maybe_unroll(Tag, State = #state{stack=Stack}) ->
 -define(DOCTYPE_END,
         ">").               %% the tag can contain strings
 -define(XML,
-        "<?xml").           %% the tag can contain attrs. closes with "?>"
+        "<\\?xml").         %% the tag can contain attrs. closes with "?>"
 -define(XML_END,
-        "?>").              %% the tag can contain attrs. closes with "?>"
+        "\\?>").            %% the tag can contain attrs. closes with "?>"
 -define(TAG_START,
-        "<(/)?\\s*(\\w+)"). %% closing tag marker (opt), tag name
+        "<(/?)(\\s*)(\\w+)").%% close tag marker (opt), extra ws (opt), tagname
 -define(TAG_ATTR,
         <<"\\G\\s+(\\w+)",  %% attr name (mandatory)
           "(?:\\s*=\\s*(",?SQ,"|",?DQ,"|",?UQ,"))?">>). %% attr value (opt)
 -define(TAG_END,
-        <<"\\G\s*(\/)?>">>).    %% self-closing tag marker (opt)
+        <<"\\G\s*(\/)?>">>).%% self-closing tag marker (opt)
 -define(TAG_BEGIN,
         <<?COMMENT,"|",?DOCTYPE,"|",?XML,"|",?TAG_START>>).
 
@@ -147,43 +139,53 @@ mk_regexps() ->
   end.
 
 tokenize(State, Ix0) ->
-  case tag_begin(State, Ix0) of
+  tokenize(State, Ix0, Ix0).
+
+tokenize(State, IxInit, Ix0) ->
+  case tag_begin(State, IxInit, Ix0) of
     nomatch ->
-      Tail = snip(State, Ix0),
+      Tail = snip(State, IxInit),
       {[{text, Tail}], eof};
     {match, Ix1, Pre, Tag} ->
-      case tag_end(State, Ix1, Tag) of
+      case check_scope(State, Tag) andalso tag_end(State, Ix1, Tag) of
         {match, Ix2, Token} ->
           {[{text, Pre}, Token], Ix2};
-        nomatch ->
-          tokenize(State, Ix0+1)
+        _ ->
+          tokenize(State, IxInit, Ix0+1)
       end
   end.
 
-tag_begin(State, Ix) ->
+check_scope(#state{stack=Stack}, Current) ->
+  case Stack of
+    [<<"script">>|_] when Current =/= {close, no_ws, <<"script">>} -> false;
+    [<<"style">>|_]  when Current =/= {close, no_ws, <<"style">>} -> false;
+    _ -> true
+  end.
+
+tag_begin(State, IxInit, Ix) ->
   case re_run(State, tag_begin, Ix) of
     nomatch ->
       nomatch;
-    {match, [{Pos, 4}]} ->  %% comment
-      Pre = snip(State, Ix, Pos-Ix),    %% the snippet in front of the match
-      {match, Pos+4, Pre, comment};
-    {match, [{Pos, 9}]} ->  %% doctype
-      Pre = snip(State, Ix, Pos-Ix),    %% the snippet in front of the match
-      {match, Pos+9, Pre, '!'};
-    {match, [{Pos, 5}]} ->  %% xml
-      Pre = snip(State, Ix, Pos-Ix),    %% the snippet in front of the match
-      {match, Pos+5, Pre, '?'};
-    {match, [{P0, _}, Endp, {Pos, Len}]} ->
-      Pre = snip(State, Ix, P0-Ix),    %% the snippet in front of the match
+    {match, [{Pos, 3}]} ->
+      exit({snip(State, IxInit, Pos-IxInit),snip(State, Pos, 3)});
+    {match, [{Pos, Len}]} ->
+      Pre = snip(State, IxInit, Pos-IxInit), %% snippet in front of the match
+      {match, Pos+Len, Pre, whatmatch(Len)};
+    {match, [{P0, _}, Endp, WS, {Pos, Len}]} -> %% Endp is the '/' of an end-tag
+      Pre = snip(State, IxInit, P0-IxInit), %% snippet in front of the match
       Tag = string:lowercase(snip(State, Pos, Len)),   %% the tag
-      {match, Pos+Len, Pre, {open_close(Endp), Tag}}
+      {match, Pos+Len, Pre, {open_close(Endp), ws(WS), Tag}}
   end.
 
-open_close({-1, 0}) -> open;
-open_close(_) -> close.
+whatmatch(4) -> comment; %% "<!--"
+whatmatch(5) -> '?';     %% "<?xml"
+whatmatch(9) -> '!'.     %% "<!doctype"
 
--define(END_NORM, [_]).
--define(END_SELF, [_,_]).
+ws({_, 0}) -> no_ws;  %% there's no whitespace between the "<" and the tag
+ws({_, _}) -> ws.     %% there is whitespace between the "<" and the tag
+
+open_close({_, 0}) -> open;  %% "<" is not followed by "/"
+open_close({_, 1}) -> close. %% "<" is followed by "/"
 
 tag_end(State, Ix0, '?') ->
   {Ix1, Attrs} = tag_attrs(State, {Ix0, []}),
@@ -202,7 +204,7 @@ tag_end(State, Ix0, comment) ->
     nomatch -> {match, eof, {comment, snip(State, Ix0)}};
     {match, [{Pos, 3}]} -> {match, Pos+3, {comment, snip(State, Ix0, Pos-Ix0)}}
   end;
-tag_end(State, Ix0, {OpenClose, Tag}) ->
+tag_end(State, Ix0, {OpenClose, _, Tag}) ->
   {Ix1, Attrs} = tag_attrs(State, {Ix0, []}),
   case re_run(State, tag_end, Ix1) of
     nomatch -> nomatch;

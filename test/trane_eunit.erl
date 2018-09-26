@@ -41,7 +41,6 @@ t_style_test_() ->
       t_sax(lists:nth(6, Lines))),
    ?_assertEqual(
       [{tag,<<"style">>,[]},
-       {text,<<"">>},
        {end_tag,<<"style">>}],
       t_sax(lists:nth(7, Lines))),
    ?_assertEqual(
