@@ -536,43 +536,47 @@ t_basic_test_() ->
    ?_assert(
       match(
         lists:nth(50, Lines),
-        [])),
+        [{text,<<"<a">>}])),
    ?_assert(
       match(
         lists:nth(51, Lines),
-        [])),
+        [{text,<<"<a href">>}])),
    ?_assert(
       match(
         lists:nth(52, Lines),
-        [])),
+        [{text,<<"<a href=">>}])),
    ?_assert(
       match(
         lists:nth(53, Lines),
-        [])),
+        [{text,<<"<a href=A">>}])),
    ?_assert(
       match(
         lists:nth(54, Lines),
-        [])),
+        [{text,<<"<?foo>">>}])),
    ?_assert(
       match(
         lists:nth(55, Lines),
-        [])),
+        [{text,<<"<?xml">>}])),
    ?_assert(
       match(
         lists:nth(56, Lines),
-        [])),
+        [{text,<<"<?xml>">>}])),
    ?_assert(
       match(
         lists:nth(57, Lines),
-        [])),
+        [{'?',[]}])),
    ?_assert(
       match(
         lists:nth(58, Lines),
-        [])),
+        [{'!',[]}])),
    ?_assert(
       match(
         lists:nth(59, Lines),
-        []))
+        [{text, <<"<!DOCTYPE">>}])),
+   ?_assert(
+      match(
+        lists:nth(60, Lines),
+        [{comment, <<" eof...">>}]))
   ].
 
 match(Line, Match) ->
