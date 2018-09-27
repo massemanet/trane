@@ -74,19 +74,20 @@ eof(#state{acc=Acc}) -> Acc.
 maybe_emit(Token, State) ->
   case Token of
     {text, <<>>}       -> State;
-    {oc, Tag, Attrs}   -> emit({end_tag, Tag}, emit({tag, Tag, Attrs}, State));
-    {co, Tag, Attrs}   -> emit({tag, Tag, Attrs}, emit({end_tag, Tag}, State));
-    {open, Tag, Attrs} -> emit({tag, Tag, Attrs}, push(Tag, State));
-    {close, Tag, _}    -> emit_end_tag(Tag, State);
+    {oc, Tag, Attrs}   -> emit_pop(Tag, emit_push(Tag, Attrs, State));
+    {coc, Tag, Attrs}  -> maybe_emit({oc, Tag, Attrs}, emit_pop(Tag, State));
+    {open, Tag, Attrs} -> emit_push(Tag, Attrs, State);
+    {close, Tag, _}    -> emit_pop(Tag, State);
     {comment, Comment} -> emit({comment, Comment}, State);
     {'?', DT}          -> emit({'?', DT}, State);
     {'!', DT}          -> emit({'!', DT}, State);
-    {script, Script}   -> emit({script, Script}, State);
-    {style, Style}     -> emit({style, Style}, State);
     {text, Text}       -> emit({text, Text}, State)
   end.
 
-emit_end_tag(Tag, State = #state{stack=Stack}) ->
+emit_push(Tag, Attrs, State) ->
+  emit({tag, Tag, Attrs}, push(Tag, State)).
+
+emit_pop(Tag, State = #state{stack=Stack}) ->
   case lists:splitwith(fun(T)-> T=/=Tag end, Stack) of
     {Stack, []} -> State;    %% close tag without open tag; drop it
     {H, T} -> emit({end_tag, Tag}, pop(Tag, unroll(H, State#state{stack=T})))
@@ -215,7 +216,7 @@ tag_end(State, Ix0, {OpenClose, _, Tag}) ->
 type(norm, open)  -> open;  %% <a>   = open
 type(norm, close) -> close; %% </a>  = close
 type(self, open)  -> oc;    %% <a/>  = open, close
-type(self, close) -> co.    %% </a/> = close, open
+type(self, close) -> coc.   %% </a/> = close, open, close
 
 tag_attrs(State, {Ix, O}) ->
   case re_run(State, tag_attr, Ix) of
