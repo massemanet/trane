@@ -35,6 +35,7 @@ wget_print(Url) ->
 
 wget(Url) ->
   inets:start(),
+  ssl:start(),
   case httpc:request(get, {Url, []}, [], [{body_format, binary}]) of
     {ok, {_Rc, _Hdrs, Body}} -> Body;
     {error, R} -> exit({bad_request, {Url, R}})
@@ -105,7 +106,8 @@ unroll(Stack, State) ->
 
 -define(DQ, "(?:\"(?:[^\"]|\\\\\")*\")").       %% double quoted string
 -define(SQ, "(?:'(?:[^\']|\\\\')*')").          %% single quoted string
--define(UQ, "(?:[^>\\\\\"\\\\'\\s/]|/(?!>))+"). %% unquoted string
+-define(UQ, "(?:[^>/=\\\\\"\\\\'\\s]|/(?!>))+").%% unquoted string
+-define(STRING, <<?SQ,"|",?DQ,"|",?UQ>>/binary).%% a string
 
 -define(COMMENT,
         "<!--").            %% comment. closes with "-->"
@@ -122,20 +124,20 @@ unroll(Stack, State) ->
 -define(TAG_START,
         "<(/?)(\\s*)(\\w+)").%% close tag marker (opt), extra ws (opt), tagname
 -define(TAG_ATTR,
-        <<"\\G\\s+(\\w+)",  %% attr name (mandatory)
-          "(?:\\s*=\\s*(",?SQ,"|",?DQ,"|",?UQ,"))?">>). %% attr value (opt)
+        <<"\\G\\s+(",?STRING,")",  %% attr name (mandatory)
+          "(?:\\s*=\\s*(",?STRING,"))?">>). %% attr value (opt)
 -define(TAG_END,
         <<"\\G\s*(\/)?>">>).%% self-closing tag marker (opt)
 -define(TAG_BEGIN,
         <<?COMMENT,"|",?DOCTYPE,"|",?XML,"|",?TAG_START>>).
 
 mk_regexps() ->
-  fun(tag_begin)       -> element(2, re:compile(?TAG_BEGIN, [caseless]));
-     (tag_attr)        -> element(2, re:compile(?TAG_ATTR, [caseless]));
-     (tag_end)         -> element(2, re:compile(?TAG_END, [caseless]));
-     (tag_end_comment) -> element(2, re:compile(?COMMENT_END, [caseless]));
-     (tag_end_doctype) -> element(2, re:compile(?DOCTYPE_END, [caseless]));
-     (tag_end_xml)     -> element(2, re:compile(?XML_END, [caseless]))
+  fun(tag_begin)       -> re_compile(?TAG_BEGIN);
+     (tag_attr)        -> re_compile(?TAG_ATTR);
+     (tag_end)         -> re_compile(?TAG_END);
+     (tag_end_comment) -> re_compile(?COMMENT_END);
+     (tag_end_doctype) -> re_compile(?DOCTYPE_END);
+     (tag_end_xml)     -> re_compile(?XML_END)
   end.
 
 tokenize(State, Ix0) ->
@@ -166,12 +168,10 @@ tag_begin(State, IxInit, Ix) ->
   case re_run(State, tag_begin, Ix) of
     nomatch ->
       nomatch;
-    {match, [{Pos, 3}]} ->
-      exit({snip(State, IxInit, Pos-IxInit),snip(State, Pos, 3)});
     {match, [{Pos, Len}]} ->
       Pre = snip(State, IxInit, Pos-IxInit), %% snippet in front of the match
       {match, Pos+Len, Pre, whatmatch(Len)};
-    {match, [{P0, _}, Endp, WS, {Pos, Len}]} -> %% Endp is the '/' of an end-tag
+    {match, [{P0, _}, Endp, WS, {Pos, Len}]} -> %% Endp is the '/' of an endtag
       Pre = snip(State, IxInit, P0-IxInit), %% snippet in front of the match
       Tag = string:lowercase(snip(State, Pos, Len)),   %% the tag
       {match, Pos+Len, Pre, {open_close(Endp), ws(WS), Tag}}
@@ -222,9 +222,9 @@ tag_attrs(State, {Ix, O}) ->
     nomatch ->
       {Ix, lists:reverse(O)};
     {match, [_, {Pos, Len}]} ->
-      tag_attrs(State, {Pos+Len, [{snip(State, Pos, Len), <<>>}|O]});
+      tag_attrs(State, {Pos+Len, [{val(State, Pos, Len), <<>>}|O]});
     {match, [_, {P0, L0}, {P1, L1}]} ->
-      tag_attrs(State, {P1+L1, [{snip(State, P0, L0), val(State, P1, L1)}|O]})
+      tag_attrs(State, {P1+L1, [{val(State, P0, L0), val(State, P1, L1)}|O]})
   end.
 
 val(State, Pos, Len) ->
@@ -243,3 +243,7 @@ snip(#state{subject=Bin}, Pos, Len) ->
 
 re_run(#state{subject=Subj, res=REs}, Tag, Ix) ->
   re:run(Subj, REs(Tag), [{offset, Ix}]).
+
+re_compile(Str) ->
+  {ok, RE} = re:compile(Str, [caseless]),
+  RE.

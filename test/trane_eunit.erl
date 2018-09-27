@@ -11,7 +11,7 @@ t_style_test_() ->
   Lines = re:split(X, "\n"),
 
   [?_assertEqual(
-      [{'?',<<"xml version=\"1.0\" encoding=\"utf-8\"">>}],
+      [{'?',[{<<"version">>,<<"1.0">>},{<<"encoding">>,<<"utf-8">>}]}],
       t_sax(lists:nth(1, Lines))),
    ?_assertEqual(
       [{comment,<<" renders: \"0 1 2 3 4\" ">>}],
@@ -54,92 +54,97 @@ t_script_test_() ->
   Lines = re:split(X, "\n"),
 
   [?_assertEqual(
-      [{comment,<<" renders: \"0 1 2 3 4 5 6 7 8\" ">>}],
+      [{'!',[{<<"bla=foo">>,<<>>}]},
+       {tag,<<"p">>,[{<<"a">>,<<"b">>},{<<"c">>,<<"d">>}]},
+       {end_tag,<<"p">>}],
       t_sax(lists:nth(1, Lines))),
    ?_assertEqual(
-      [],
+      [{comment,<<" renders: \"0 1 2 3 4 5 6 7 8\" ">>}],
       t_sax(lists:nth(2, Lines))),
+   ?_assertEqual(
+      [],
+      t_sax(lists:nth(3, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[{<<"type">>,<<"/text/javascript">>}]},
        {text,<<"foo(\"<\\\\/script>\");">>},
        {end_tag,<<"script">>},
        {text,<<"0">>}],
-      t_sax(lists:nth(3, Lines))),
+      t_sax(lists:nth(4, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[]},
        {text,<<"   foo(\"<\\/script>\"); ">>},
        {end_tag,<<"script">>},
        {text,<<"1">>}],
-      t_sax(lists:nth(4, Lines))),
+      t_sax(lists:nth(5, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[]},
        {end_tag,<<"script">>},
        {text,<<" foo('</ script>');< /SCRIPT>1.5">>}],
-      t_sax(lists:nth(5, Lines))),
+      t_sax(lists:nth(6, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[]},
        {text,<<" foo('< /script>');">>},
        {end_tag,<<"script">>},
        {text,<<"2">>}],
-      t_sax(lists:nth(6, Lines))),
+      t_sax(lists:nth(7, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[]},
        {end_tag,<<"script">>},
        {text,<<" foo(\"</ script>\");</scrip>2.5">>}],
-      t_sax(lists:nth(7, Lines))),
+      t_sax(lists:nth(8, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[]},
        {text,<<" foo(\"</ script>\");">>},
        {end_tag,<<"script">>},
        {text,<<"3">>}],
-      t_sax(lists:nth(8, Lines))),
+      t_sax(lists:nth(9, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[]},
        {end_tag,<<"script">>},
        {text,<<" foo(\"</ script>\");</ script>3.5">>}],
-      t_sax(lists:nth(9, Lines))),
-   ?_assertEqual(
-      [{tag,<<"script">>,[]},
-       {text,<<" foo(\"">>},
-       {end_tag,<<"script">>},
-       {text,<<"4">>}],
       t_sax(lists:nth(10, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[]},
        {text,<<" foo(\"">>},
        {end_tag,<<"script">>},
-       {text,<<"5">>}],
+       {text,<<"4">>}],
       t_sax(lists:nth(11, Lines))),
+   ?_assertEqual(
+      [{tag,<<"script">>,[]},
+       {text,<<" foo(\"">>},
+       {end_tag,<<"script">>},
+       {text,<<"5">>}],
+      t_sax(lists:nth(12, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[]},
        {end_tag,<<"script">>},
        {text,<<" foo(\"</ script>\");</ script>5.5">>}],
-      t_sax(lists:nth(12, Lines))),
+      t_sax(lists:nth(13, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[]},
        {text,<<" foo(\"">>},
        {end_tag,<<"script">>},
        {text,<<"6">>}],
-      t_sax(lists:nth(13, Lines))),
+      t_sax(lists:nth(14, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[]},
        {text,<<" foo <script> foo(\"">>},
        {end_tag,<<"script">>},
        {text,<<"7">>}],
-      t_sax(lists:nth(14, Lines))),
+      t_sax(lists:nth(15, Lines))),
    ?_assertEqual(
       [{tag,<<"script">>,[]},
        {text,<<" foo(\"<\\\\/script>\")">>},
        {end_tag,<<"script">>},
        {text,<<"8">>}],
-      t_sax(lists:nth(15, Lines)))].
+      t_sax(lists:nth(16, Lines)))].
 
 t_basic_test_() ->
   {ok, X} = file:read_file("../test/basic.html"),
   Lines = re:split(X, "\n"),
 
   [?_assertEqual(
-      [{'!',<<"doctype bla">>},
+      [{'!',[{<<"bla">>,<<>>}]},
        {tag,<<"p">>,[{<<"a">>,<<"b">>},{<<"c">>,<<"d">>}]},
        {end_tag,<<"p">>}],
       t_sax(lists:nth(1, Lines))),
