@@ -1,6 +1,6 @@
 {application, trane,
  [
-  {description, ""},
+  {description, "a SAX-style parser for HTML"},
   {vsn, "1.0.1"},
   {registered, []},
   {applications, [

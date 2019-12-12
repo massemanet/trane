@@ -23,6 +23,8 @@ sax(Str,Fun,Acc) ->
 parse(Str,Fun,Acc) ->
   parse({Fun,Acc,[]},tokenize(Str)).
 
+parse(State, []) ->
+  eof(State);
 parse({Fun,Acc,Stack}=State,[{Token,T}]) ->
   case Token of
     eof -> eof(unroll(Stack,{Fun,Acc,[]}));
@@ -163,7 +165,7 @@ tz(script,Str)                            -> ff(script,Str);
 tz(style,Str)                             -> ff(style,Str);
 tz(text,Str)                              -> ff(text,Str);
 
-tz(X,"")                                  -> {X,"",eof}.
+tz(X,<<>>)                                -> {X,"",eof}.
 
 %% fast forward
 ff(What,Str) -> ff(What,Str,0,Str).
